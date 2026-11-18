@@ -6,7 +6,7 @@ import { weightVsAero } from '../../domain/weightVsAero';
 import { makeBuild, useActiveBuild, useStore } from '../../state/store';
 import { CATEGORIES } from '../../types/components';
 import { runJob } from '../../workers/client';
-import { BikeIllustration } from '../builder/BikeIllustration';
+import { BikeImage } from '../bike/BikeImage';
 import { GarageBar } from '../builder/BuilderPage';
 import { Card, NumberField, Segmented, Slider, Spinner, Tile } from '../common';
 import { aed, duration } from '../format';
@@ -66,7 +66,7 @@ function AutoBuild() {
           {result === 'none' && <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nothing complete fits {aed(budget)}. Try a bigger budget.</p>}
           {parts && result && result !== 'none' && (
             <div className="rounded-2xl border border-slate-200 bg-[radial-gradient(120%_90%_at_50%_0%,#ffffff_0%,#f1f5f9_70%)] p-3">
-              <BikeIllustration build={parts} colourway={resolveColourway(parts.frame, undefined, PAINTS[0].hex)} />
+              <BikeImage parts={parts} colourway={resolveColourway(parts.frame, undefined, PAINTS[0].hex)} width={900} />
               <div className="mt-1 grid grid-cols-3 gap-2">
                 <Tile label="Price" value={Math.round(result.priceAed).toLocaleString('en-US')} unit="AED" sub={`${aed(budget - result.priceAed)} left`} />
                 <Tile label="Time" value={duration(result.timeS)} sub={route.name} />

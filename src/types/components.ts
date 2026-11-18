@@ -142,6 +142,8 @@ export interface Frame extends BaseComponent {
   colourways: Colourway[];
   /** Where the model sits in its brand's line-up. */
   range: 'top' | 'mid' | 'entry';
+  /** Frame material: changes how it looks (carbon weave, alloy welds). */
+  material: 'carbon' | 'alloy' | 'steel';
   /** How this model's frame is shaped (overrides the defaults for its frame type). See ui/bike/frameShape.ts. */
   shape?: Partial<FrameShapeData>;
   /** Proprietary cockpits: the frame only works with these handlebar ids. */

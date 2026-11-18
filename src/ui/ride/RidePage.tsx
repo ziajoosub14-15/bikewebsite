@@ -13,7 +13,7 @@ import { RoutePicker } from './RoutePicker';
 import { POSITION_LABEL } from '../../domain/rider';
 import { isLightHex, resolveColourway } from '../bike/paint';
 import { BackdropCanvas } from '../bike/BackdropCanvas';
-import { BikeIllustration } from '../builder/BikeIllustration';
+import { BikeImage } from '../bike/BikeImage';
 
 function EnergyBreakdown({ e }: { e: ReturnType<typeof runRide>['sim']['energy'] }) {
   const rows = [
@@ -105,10 +105,10 @@ export function RidePage() {
 
         <div className="min-w-0 space-y-6">
           <section className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:flex-row">
-            <div className="relative sm:w-[46%]">
-              <BackdropCanvas id={state.backdrop} />
+            <div className="relative overflow-hidden sm:w-[46%]">
+              <BackdropCanvas id={state.backdrop} className="scale-110 blur-[3px]" />
               <div className="relative px-2 pt-2">
-                <BikeIllustration build={setup.parts} colourway={cw} floorLine={state.backdrop === 'studio'} />
+                <BikeImage parts={setup.parts} colourway={cw} width={900} />
               </div>
             </div>
             <div className="flex-1 p-4">

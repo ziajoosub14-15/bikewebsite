@@ -8,7 +8,7 @@ import { gradeColor } from './grade';
 import type { ResolvedBuild } from '../../domain/bikeModel';
 import type { Position } from '../../physics/types';
 import type { Colourway } from '../../types/components';
-import { bikeLayout, bikeSprite, drawBikeAndRider, type BikeLayout } from '../bike/bikeSprite';
+import { bikeLayout, bikeSprite, drawBikeAndRider, wheelSprite, type BikeLayout } from '../bike/bikeSprite';
 import { drawBackdrop } from '../bike/backdrops';
 
 export interface AnimRider {
@@ -25,7 +25,8 @@ function drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, label: s
   const fs = 11 * Math.min(scale, 1.2);
   ctx.font = `600 ${fs}px Inter, system-ui, sans-serif`;
   ctx.textAlign = 'center';
-  const ly = y - row * (fs + 6);
+  // Stack labels upwards, but never above the top of the picture.
+  const ly = Math.max(y - row * (fs + 6), fs + 4 + row * (fs + 6));
   const w = ctx.measureText(label).width + 12;
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.beginPath();
@@ -154,7 +155,7 @@ export function RideAnimation({ route, riders, onPosition, height = 300, scene }
     return c;
   }, [scene, width, height]);
   // Images of each rider's configured bike (drawn without wheels) and where its wheels go.
-  const [sprites, setSprites] = useState<Record<string, { img: HTMLImageElement; layout: BikeLayout }>>({});
+  const [sprites, setSprites] = useState<Record<string, { img: HTMLImageElement; wheels: HTMLImageElement | null; layout: BikeLayout }>>({});
   const spriteKey = riders.map((r) => (r.bike ? `${r.name}:${Object.values(r.bike.parts).map((p) => p.id).join(',')}:${JSON.stringify(r.bike.colourway)}` : r.name)).join('|');
   useEffect(() => {
     let alive = true;
@@ -162,14 +163,15 @@ export function RideAnimation({ route, riders, onPosition, height = 300, scene }
       riders.map(async (r) => {
         if (!r.bike) return null;
         try {
-          return [r.name, { img: await bikeSprite(r.bike.parts, r.bike.colourway), layout: bikeLayout(r.bike.parts) }] as const;
+          const [img, wheels] = await Promise.all([bikeSprite(r.bike.parts, r.bike.colourway), wheelSprite(r.bike.parts, r.bike.colourway)]);
+          return [r.name, { img, wheels, layout: bikeLayout(r.bike.parts) }] as const;
         } catch {
           return null;
         }
       }),
     ).then((list) => {
       if (!alive) return;
-      const out: Record<string, { img: HTMLImageElement; layout: BikeLayout }> = {};
+      const out: Record<string, { img: HTMLImageElement; wheels: HTMLImageElement | null; layout: BikeLayout }> = {};
       for (const e of list) if (e) out[e[0]] = e[1];
       setSprites(out);
     });
@@ -334,7 +336,7 @@ export function RideAnimation({ route, riders, onPosition, height = 300, scene }
       placed.push({ x: px, row });
       const sp = sprites[r.name];
       if (sp) {
-        const k = 0.12 * scale;
+        const k = 0.15 * scale;
         drawBikeAndRider(ctx, sp.img, sp.layout, {
           x: px,
           y: yOf(s.distM) + 1,
@@ -344,8 +346,9 @@ export function RideAnimation({ route, riders, onPosition, height = 300, scene }
           crank: s.coasting ? 0.5 : s.distM / 1.4,
           kit: r.color,
           position: r.position ?? 'drops',
+          wheels: sp.wheels,
         });
-        if (riders.length > 1) drawLabel(ctx, px, yOf(s.distM) - 88 * scale, r.name, r.color, row, scale);
+        if (riders.length > 1) drawLabel(ctx, px, yOf(s.distM) - 108 * scale, r.name, r.color, row, scale);
       } else {
         drawRider(ctx, px, yOf(s.distM) - 2, ang, r.color, crank, scale, riders.length > 1 ? r.name : undefined, row);
       }

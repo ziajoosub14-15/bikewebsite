@@ -53,9 +53,13 @@ simulator. Brand cockpits (Colnago CC.Y1 / CC.01, Cervélo V-stem, Canyon CP0018
 have their own drawing style and only fit their frames.
 Wheels have a `look` (rim finish, decal text and model, front/rear depth, spoke counts, lacing) and tyres a
 `sidewall` (black or tan).
-The same paint rules drive the 2D drawing (`ui/builder/BikeIllustration.tsx`) and the 3D model
-(`ui/bike/Bike3D.tsx`, three.js, loaded only when you open the 3D view). These are illustrations built
-from the parts' data, not brand photos or logos.
+The bike is shown as a realistic three.js render (`ui/bike/three/`): tubes are swept with aero
+cross-sections from the frame's shape data, carbon parts show their weave under clear lacquer, alloy frames
+get weld beads, paint has gloss/matte/metallic/pearl finishes, and a studio environment with softbox
+reflections, soft shadows and ambient occlusion lights it. `three/snapshot.ts` renders still images of the
+same model for the Ride page, auto-build results and the simulator (whose wheels spin from a wheel render).
+The flat drawing (`ui/builder/BikeIllustration.tsx`) is only a fallback for devices without WebGL.
+These are built from the parts' data, not brand photos, logos or factory CAD files.
 
 ## Brands and data accuracy
 

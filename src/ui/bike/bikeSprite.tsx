@@ -59,22 +59,66 @@ export function bikeLayout(parts: ResolvedBuild): BikeLayout {
 
 const cache = new Map<string, Promise<HTMLImageElement>>();
 
-/** The bike drawn without wheels, as an image the ride animation can draw on a canvas. */
+/** The bike without wheels, as an image the ride animation can draw on a canvas (realistic render if possible). */
 export function bikeSprite(parts: ResolvedBuild, colourway: Colourway): Promise<HTMLImageElement> {
   const key = JSON.stringify([Object.values(parts).map((p) => p.id), colourway]);
   let p = cache.get(key);
   if (!p) {
-    const svg = renderToStaticMarkup(<BikeIllustration build={parts} colourway={colourway} wheels={false} floorLine={false} shadow={false} />);
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-    p = new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = url;
-    });
+    const load = (src: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+    const svgFallback = () => {
+      const svg = renderToStaticMarkup(<BikeIllustration build={parts} colourway={colourway} wheels={false} floorLine={false} shadow={false} />);
+      return load(URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })));
+    };
+    p = import('./three/snapshot')
+      .then((m) => m.bikeSnapshot(parts, colourway, { wheels: false, shadow: false, width: 1400 }))
+      .then((url) => (url ? load(url) : svgFallback()))
+      .catch(svgFallback);
     cache.set(key, p);
   }
   return p;
+}
+
+const wheelCache = new Map<string, Promise<HTMLImageElement | null>>();
+
+/** Realistic image of both wheels (same coordinates as the bike sprite), for spinning in the animation. */
+export function wheelSprite(parts: ResolvedBuild, colourway: Colourway): Promise<HTMLImageElement | null> {
+  const key = JSON.stringify([parts.wheels.id, parts.tyres.id, parts.frame.compat.brakeType, parts.frame.frameType]);
+  let p = wheelCache.get(key);
+  if (!p) {
+    p = import('./three/snapshot')
+      .then((m) => m.bikeSnapshot(parts, colourway, { only: 'wheels', shadow: false, width: 1400 }))
+      .then(
+        (url) =>
+          url
+            ? new Promise<HTMLImageElement>((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = url;
+              })
+            : null,
+      )
+      .catch(() => null);
+    wheelCache.set(key, p);
+  }
+  return p;
+}
+
+/** Draw one wheel from the wheel image, rotated by the wheel's spin. */
+function wheelFromImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, c: Pt, R: number, phase: number) {
+  const k = img.naturalWidth / 920;
+  const r = R * 1.04;
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.rotate(phase);
+  ctx.drawImage(img, (c.x - r - 40) * k, (c.y - r - 60) * k, 2 * r * k, 2 * r * k, -r, -r, 2 * r, 2 * r);
+  ctx.restore();
 }
 
 function wheel(ctx: CanvasRenderingContext2D, c: Pt, L: BikeLayout, phase: number, solidDisc: boolean) {
@@ -163,7 +207,7 @@ export function drawBikeAndRider(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   L: BikeLayout,
-  opts: { x: number; y: number; angle: number; pxPerUnit: number; wheelPhase: number; crank: number; kit: string; position: Position },
+  opts: { x: number; y: number; angle: number; pxPerUnit: number; wheelPhase: number; crank: number; kit: string; position: Position; wheels?: HTMLImageElement | null },
 ) {
   ctx.save();
   ctx.translate(opts.x, opts.y);
@@ -195,8 +239,13 @@ export function drawBikeAndRider(
 
   // Far leg behind the bike
   limb(ctx, hip, pedal(opts.crank + Math.PI), 218, 218, 1, 34, '#0e1012');
-  wheel(ctx, L.rear, L, opts.wheelPhase, L.rearDisc);
-  wheel(ctx, L.front, L, opts.wheelPhase, false);
+  if (opts.wheels) {
+    wheelFromImage(ctx, opts.wheels, L.rear, L.R, opts.wheelPhase);
+    wheelFromImage(ctx, opts.wheels, L.front, L.R, opts.wheelPhase);
+  } else {
+    wheel(ctx, L.rear, L, opts.wheelPhase, L.rearDisc);
+    wheel(ctx, L.front, L, opts.wheelPhase, false);
+  }
   ctx.drawImage(img, 40, 60, 920, 520);
 
   // Near leg

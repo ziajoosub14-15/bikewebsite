@@ -57,7 +57,7 @@ export function geometry(type: FrameType): FrameGeo {
 const DEFAULT_SHAPES: Record<FrameType, FrameShapeData> = {
   aero: {
     stCurve: 12, ttJoin: 0.9, ttBend: 0, dtBend: 0, stayJoin: 0.66, stays: 'straight',
-    depth: { dt: [1.85, 1.55], tt: [1.0, 1.25], st: [1.6, 1.2], ht: 1.75, cs: [0.6, 1.1], ss: [0.42, 0.55], fork: 1.45 },
+    depth: { dt: [2.0, 1.7], tt: [1.15, 1.4], st: [1.75, 1.3], ht: 1.9, cs: [0.65, 1.15], ss: [0.45, 0.58], fork: 1.5 },
     nose: 0, headUp: 0, fork: 'curved', lugs: false, isoFlow: false, futureShock: false, bento: false, seatMast: false, offAxisPost: false,
   },
   climbing: {

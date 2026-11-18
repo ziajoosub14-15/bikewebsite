@@ -6,12 +6,9 @@ import { CATEGORIES, type Category } from '../../types/components';
 import { aed } from '../format';
 import { CATEGORY_LABEL, PAINTS } from '../labels';
 import { FitPanel } from '../rider/FitPanel';
-import { BikeIllustration } from './BikeIllustration';
 import { ColourwayPicker } from './ColourwayPicker';
 import { resolveColourway } from '../bike/paint';
-import { Segmented } from '../common';
 import { BACKDROPS } from '../bike/backdrops';
-import { BackdropCanvas } from '../bike/BackdropCanvas';
 
 const Bike3D = lazy(() => import('../bike/Bike3D'));
 import { PartPicker } from './PartPicker';
@@ -83,7 +80,6 @@ export function BuilderPage() {
   const summary = useMemo(() => summarize(build, state.rider), [build, state.rider]);
   const colourway = resolveColourway(summary.parts.frame, build.colourwayId, build.paint);
   const [active, setActive] = useState<Category>('frame');
-  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const pickerRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
   const issueCats = new Map<Category, 'error' | 'warning'>();
@@ -141,24 +137,12 @@ export function BuilderPage() {
                   />
                 ))}
               </div>
-              <div className="w-32">
-                <Segmented size="sm" label="View" value={viewMode} onChange={setViewMode} options={[{ value: '2d', label: '2D' }, { value: '3d', label: '3D' }]} />
-              </div>
             </div>
-            {viewMode === '2d' ? (
-              <div className="relative mx-3 mt-3 overflow-hidden rounded-2xl sm:mx-4">
-                <BackdropCanvas id={state.backdrop} />
-                <div className="relative px-1 sm:px-3">
-                  <BikeIllustration build={summary.parts} colourway={colourway} highlight={active} floorLine={state.backdrop === 'studio'} />
-                </div>
-              </div>
-            ) : (
-              <div className="mx-3 mt-3 overflow-hidden rounded-2xl sm:mx-4">
-                <Suspense fallback={<div className="flex h-80 items-center justify-center text-sm text-slate-500">Loading 3D…</div>}>
-                  <Bike3D parts={summary.parts} colourway={colourway} backdrop={state.backdrop} />
-                </Suspense>
-              </div>
-            )}
+            <div className="mx-3 mt-3 overflow-hidden rounded-2xl sm:mx-4">
+              <Suspense fallback={<div className="flex aspect-[1.72] items-center justify-center text-sm text-slate-500">Loading the realistic view…</div>}>
+                <Bike3D parts={summary.parts} colourway={colourway} backdrop={state.backdrop} />
+              </Suspense>
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 bg-white/60 px-4 py-3 backdrop-blur sm:px-6">
               <ColourwayPicker frame={summary.parts.frame} colourwayId={colourway.id} paint={build.paint} onChange={(colourwayId, paint) => update({ colourwayId, ...(paint ? { paint } : {}) })} />
               <div className="text-sm text-slate-600">
