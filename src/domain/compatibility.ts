@@ -187,6 +187,37 @@ const RULES: Rule[] = [
           message: `The ${label(b.handlebars)} hides the cables inside the bar and feeds them into the frame through the headset. The ${label(b.frame)} routes cables outside, so they have nowhere to go. Choose a standard bar and stem.`,
         }
       : null,
+  // Proprietary cockpits
+  (b) =>
+    b.frame.requiresBars && !b.frame.requiresBars.includes(b.handlebars.id)
+      ? {
+          id: 'frame-needs-cockpit',
+          severity: 'error',
+          categories: ['frame', 'handlebars'],
+          title: 'This frame needs its own cockpit',
+          message: `The ${label(b.frame)} only works with its own integrated cockpit (${b.frame.requiresBars
+            .map((id) => {
+              const bar = getComponent('handlebars', id);
+              return bar ? label(bar) : id;
+            })
+            .join(' or ')}). Its steerer and head tube are shaped for it, so normal bars and stems won't fit.`,
+        }
+      : null,
+  (b) =>
+    b.handlebars.fitsFrames && !b.handlebars.fitsFrames.includes(b.frame.id)
+      ? {
+          id: 'cockpit-for-other-frame',
+          severity: 'error',
+          categories: ['frame', 'handlebars'],
+          title: 'Cockpit made for a different frame',
+          message: `The ${label(b.handlebars)} is made only for the ${b.handlebars.fitsFrames
+            .map((id) => {
+              const f = getComponent('frame', id);
+              return f ? label(f) : id;
+            })
+            .join(', ')}. It won't mount on the ${label(b.frame)}.`,
+        }
+      : null,
   // TT frame with no aero bars
   (b) =>
     b.frame.frameType === 'tt' && !b.handlebars.positions.includes('aero')
@@ -247,4 +278,12 @@ export function matchingDerailleur(sel: BuildSelection, groupsetId: string): str
   const same = ok.filter((rd) => rd.name.toLowerCase().startsWith(family) || rd.name.toLowerCase().includes(` ${family}`));
   const pick = (same.length ? same : ok).sort((a, b) => a.price - b.price)[0];
   return pick?.id ?? null;
+}
+
+/** Quick check used by auto-build: can this bar go on this frame at all? */
+export function barFitsFrame(bar: { id: string; barType: string; fitsFrames?: string[] }, frame: { id: string; internalRouting: boolean; requiresBars?: string[] }): boolean {
+  if (frame.requiresBars && !frame.requiresBars.includes(bar.id)) return false;
+  if (bar.fitsFrames && !bar.fitsFrames.includes(frame.id)) return false;
+  if (bar.barType === 'aero-integrated' && !frame.internalRouting) return false;
+  return true;
 }

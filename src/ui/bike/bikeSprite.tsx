@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { ResolvedBuild } from '../../domain/bikeModel';
 import type { Position } from '../../physics/types';
 import type { Colourway, WheelLook } from '../../types/components';
-import { BikeIllustration, geometry, S, WHEEL_Y, type Pt } from '../builder/BikeIllustration';
+import { BikeIllustration } from '../builder/BikeIllustration';
+import { cockpitGeometry, frameDrawing, S, WHEEL_Y, type Pt } from './frameShape';
 import { RIM_COLORS, TAN_WALL } from './paint';
 
 /** Key points of the side-view drawing (in its 920 × 520 coordinate space), for placing wheels and a rider. */
@@ -26,32 +27,30 @@ export interface BikeLayout {
 }
 
 export function bikeLayout(parts: ResolvedBuild): BikeLayout {
-  const g = geometry(parts.frame.frameType);
+  const fd = frameDrawing(parts.frame);
+  const g = fd.g;
+  const ck = cockpitGeometry(fd, parts.handlebars);
   const R = (311 + parts.tyres.widthMm) * S;
   const groundY = WHEEL_Y + (311 + 45) * S + 2;
   const lift = groundY - 2 - (WHEEL_Y + R);
   const up = (p: Pt): Pt => ({ x: p.x, y: p.y + lift });
-  const st = { x: g.seatTop.x - g.bb.x, y: g.seatTop.y - g.bb.y };
-  const len = Math.hypot(st.x, st.y);
-  const postTop = { x: g.seatTop.x + (st.x / len) * 46, y: g.seatTop.y + (st.y / len) * 46 };
-  const stemLen = (parts.handlebars.integratedStemMm ?? 100) * S;
-  const stemEnd = { x: g.headTop.x + stemLen, y: g.headTop.y - stemLen * 0.12 - 4 };
   const tyreH = parts.tyres.widthMm * S * 0.95;
   const rimOuter = R - tyreH;
+  const look = parts.wheels.look;
   return {
     rear: up(g.rear),
     front: up(g.front),
     bb: up(g.bb),
-    saddle: up({ x: postTop.x - 4, y: postTop.y - 12 }),
-    hoods: up({ x: stemEnd.x + 40, y: stemEnd.y + 2 }),
-    pads: up({ x: stemEnd.x + 2, y: stemEnd.y - 20 }),
-    extensions: up({ x: stemEnd.x + 88, y: stemEnd.y - 22 }),
+    saddle: up({ x: fd.post.b.x - 4, y: fd.post.b.y - 12 }),
+    hoods: up(ck.hoods),
+    pads: up(ck.pads),
+    extensions: up(ck.extensions),
     groundY,
     R,
     tyreH,
     rimOuter,
-    rimH: Math.max(parts.wheels.rimDepthMm * S, 6),
-    look: parts.wheels.look,
+    rimH: Math.max(((look.depthFront ?? parts.wheels.rimDepthMm) + (look.depthRear ?? parts.wheels.rimDepthMm)) * 0.5 * S, 6),
+    look,
     tanWall: parts.tyres.sidewall === 'tan',
     rearDisc: parts.wheels.profile === 'disc',
     discBrakes: parts.frame.compat.brakeType === 'disc',

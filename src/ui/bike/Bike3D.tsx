@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { ResolvedBuild } from '../../domain/bikeModel';
 import type { Colourway, Finish } from '../../types/components';
-import { geometry, lerp, S, WHEEL_Y, type Pt } from '../builder/BikeIllustration';
+import { bezAt, cockpitGeometry, frameDrawing, S, spokeAngles, WHEEL_Y, type Pt, type TubeDef } from './frameShape';
 import { BACKDROPS, drawBackdrop } from './backdrops';
 import { RIM_COLORS, TAN_WALL, tubeSegments, tubeStripes, type TubeId } from './paint';
 
@@ -148,7 +148,10 @@ function rimDecalTexture(text: string, color: string, radiusFrac: number, sizeFr
 function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, textures: THREE.Texture[]): THREE.Group {
   const { frame, wheels, groupset, rearDerailleur: rd, handlebars: bars, saddle, tyres } = parts;
   const root = new THREE.Group();
-  const g = geometry(frame.frameType);
+  const fd = frameDrawing(frame);
+  const g = fd.g;
+  const sh = fd.shape;
+  const ck = cockpitGeometry(fd, bars);
   const Rm = (311 + tyres.widthMm) / 1000;
   // 2D drawing coordinates (px, y down, 0.5 px/mm) → metres (y up), axles at tyre-radius height.
   const P = (p: Pt, z = 0) => v3((p.x - 506) / S / 1000, Rm + (WHEEL_Y - p.y) / S / 1000, z);
@@ -160,55 +163,116 @@ function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, texture
   const black = mats.plain('#16191d', 0.6, 0.1);
   const silver = mats.plain('#c4ccd6', 0.25, 0.85);
 
-  /** A frame tube painted per colourway, between two 2D points at given lateral offsets. */
-  const painted = (a: Pt, b: Pt, za: number, zb: number, wPx: number, tubeId: TubeId, ratio = aeroRatio) => {
-    const rP = mmR(wPx);
-    const rL = rP * ratio;
-    for (const seg of tubeSegments(cw, tubeId, (t) => xAt(lerp(a, b, t)))) {
-      const p0 = lerp(a, b, seg.t0);
-      const p1 = lerp(a, b, seg.t1);
-      root.add(tube(P(p0, za + (zb - za) * seg.t0), P(p1, za + (zb - za) * seg.t1), rP, rL, mats.paint(seg.color, seg.finish)));
+  /**
+   * A frame tube (possibly curved / multi-piece) painted per colourway. Cut into short straight pieces
+   * with joints, between lateral offsets zA (start) and zB (end).
+   */
+  const paintedDef = (def: TubeDef, zA: number, zB: number, ratio = aeroRatio, k = 8) => {
+    const segs = tubeSegments(cw, def.id, (t) => {
+      const pc = def.pieces.find((q) => t >= q.r0 && t <= q.r1) ?? def.pieces[0];
+      return xAt(bezAt(pc.bez, (t - pc.r0) / (pc.r1 - pc.r0)));
+    });
+    const matAt = (t: number) => {
+      const sg = segs.find((x) => t >= x.t0 && t <= x.t1) ?? segs[0];
+      return mats.paint(sg.color, sg.finish);
+    };
+    for (const pc of def.pieces) {
+      for (let j = 0; j < k; j++) {
+        const t0 = j / k;
+        const t1 = (j + 1) / k;
+        const g0 = pc.r0 + (pc.r1 - pc.r0) * t0;
+        const g1 = pc.r0 + (pc.r1 - pc.r0) * t1;
+        const rP = mmR(def.wa + (def.wb - def.wa) * ((g0 + g1) / 2));
+        const rL = rP * ratio;
+        const a = P(bezAt(pc.bez, t0), zA + (zB - zA) * g0);
+        const b = P(bezAt(pc.bez, t1), zA + (zB - zA) * g1);
+        const m = matAt((g0 + g1) / 2);
+        root.add(tube(a, b, rP, rL, m));
+        if (j > 0 || pc.r0 > 0) root.add(blob(a, rP, rP, rL, m));
+      }
     }
-    for (const st of tubeStripes(cw, tubeId)) {
-      const p0 = lerp(a, b, st.t - st.width / 2);
-      const p1 = lerp(a, b, st.t + st.width / 2);
-      root.add(tube(P(p0, za), P(p1, za), rP * 1.04, rL * 1.04, mats.paint(st.color, 'gloss')));
+    for (const st of tubeStripes(cw, def.id)) {
+      const pc = def.pieces.find((q) => st.t >= q.r0 && st.t <= q.r1) ?? def.pieces[0];
+      const lt = (st.t - pc.r0) / (pc.r1 - pc.r0);
+      const dw = st.width / (pc.r1 - pc.r0) / 2;
+      const rP = mmR(def.wa + (def.wb - def.wa) * st.t) * 1.04;
+      root.add(tube(P(bezAt(pc.bez, Math.max(0, lt - dw)), zA), P(bezAt(pc.bez, Math.min(1, lt + dw)), zA), rP, rP * ratio, mats.paint(st.color, 'gloss')));
     }
+  };
+  const paintAt = (tubeId: TubeId, t: number) => {
+    const segs = tubeSegments(cw, tubeId, () => 0.5);
+    const sg = segs.find((x) => t >= x.t0 && t <= x.t1) ?? segs[0];
+    return mats.paint(sg.color, sg.finish);
   };
 
   // ── Frame
-  const seatCluster = lerp(g.bb, g.seatTop, 0.93);
-  const stayJoin = lerp(g.bb, g.seatTop, g.stayJoin);
-  const headTopJoin = { x: g.headTop.x + 2, y: g.headTop.y + 8 };
-  painted(g.bb, g.seatTop, 0, 0, g.tube, 'seat');
-  painted(seatCluster, headTopJoin, 0, 0, g.tube * 0.9, 'top');
-  painted(g.bb, g.headBottom, 0, 0, g.tube * 1.3, 'down');
-  painted(g.headTop, g.headBottom, 0, 0, g.tube * 1.15 + 2, 'head', 0.75);
+  const T = fd.tubes;
+  paintedDef(T.seat, 0, 0);
+  paintedDef(T.top, 0, 0, aeroRatio, 6);
+  paintedDef(T.down, 0, 0, aeroRatio, 6);
+  paintedDef(T.head, 0, 0, 0.72, 2);
   for (const side of [1, -1]) {
-    painted(g.rear, g.bb, 0.066 * side, 0.035 * side, g.tube * 0.6, 'chainstay', 0.8);
-    painted(g.rear, stayJoin, 0.064 * side, 0.016 * side, g.tube * 0.45, 'seatstay', 0.75);
-    painted(g.headBottom, g.front, 0.032 * side, 0.052 * side, g.tube * 0.7, 'fork', 0.6);
+    paintedDef(T.chainstay, 0.066 * side, 0.035 * side, 0.8, 4);
+    paintedDef(T.seatstay, 0.064 * side, 0.016 * side, 0.75, 4);
+    paintedDef(T.fork, (sh.fork === 'bayonet' ? 0.04 : 0.032) * side, 0.052 * side, 0.6, 4);
   }
   // Joints and BB shell
-  const forkCol = tubeSegments(cw, 'fork', () => 1)[0];
-  root.add(blob(P(g.headBottom), mmR(g.tube * 1.2), mmR(g.tube * 1.2), 0.045, mats.paint(forkCol.color, forkCol.finish)));
-  const bbCol = tubeSegments(cw, 'seat', () => 0.4)[0];
-  root.add(tube(P(g.bb, -0.045), P(g.bb, 0.045), 0.022, 0.022, mats.paint(bbCol.color, bbCol.finish)));
-  const topCol = tubeSegments(cw, 'seat', () => 0.4)[0];
-  root.add(blob(P(seatCluster), mmR(g.tube), mmR(g.tube), mmR(g.tube) * aeroRatio, mats.paint(topCol.color, topCol.finish)));
-  if (cw.detail) root.add(blob(P({ x: g.headTop.x + 1, y: g.headTop.y + 18 }), 0.008, 0.008, mmR(g.tube) * 0.8, mats.paint(cw.detail, 'gloss')));
+  root.add(blob(P(g.headBottom), mmR(T.fork.wa), mmR(T.fork.wa), 0.045, paintAt('fork', 0)));
+  root.add(tube(P(g.bb, -0.045), P(g.bb, 0.045), mmR(T.down.wa) * 0.75, mmR(T.down.wa) * 0.75, paintAt('seat', 0)));
+  root.add(blob(P(fd.seatCluster), mmR(T.seat.wb), mmR(T.seat.wb), mmR(T.seat.wb) * aeroRatio, paintAt('seat', 0.95)));
+  root.add(blob(P(fd.stayJoin), mmR(T.seat.wb), mmR(T.seat.wb), mmR(T.seat.wb) * aeroRatio * 1.1, paintAt('seat', sh.stayJoin)));
+  if (cw.detail) root.add(blob(P({ x: fd.headTop.x + 1, y: fd.headTop.y + 18 }), 0.008, 0.008, mmR(T.head.wa) * 0.75, mats.paint(cw.detail, 'gloss')));
+  if (fd.nose) {
+    // Aero nose cone ahead of the lower head tube.
+    const c = fd.nose.reduce((acc, p) => ({ x: acc.x + p.x / fd.nose!.length, y: acc.y + p.y / fd.nose!.length }), { x: 0, y: 0 });
+    root.add(blob(P(c), mmR(sh.nose * 2 + 6), mmR(28), mmR(T.head.wb) * 0.6, paintAt('head', 0.9)));
+  }
+  if (fd.bento) {
+    const a = P(fd.bento.a);
+    const b = P(fd.bento.b);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(a.distanceTo(b), 0.016, 0.035), paintAt('top', 0.8));
+    box.position.copy(a.clone().lerp(b, 0.5)).add(v3(0, mmR(T.top.wb) + 0.006, 0));
+    box.rotation.z = Math.atan2(b.y - a.y, b.x - a.x);
+    box.castShadow = true;
+    root.add(box);
+  }
+  if (fd.isoFlow) {
+    // Trek IsoFlow opening (shown as a dark recess on both sides of the mast).
+    for (const side of [1, -1]) {
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(1, 32), mats.plain('#0b0c0e', 0.9, 0));
+      hole.scale.set(fd.isoFlow.rx / S / 1000, fd.isoFlow.ry / S / 1000, 1);
+      hole.position.copy(P(fd.isoFlow.c, side * (mmR(T.seat.wb) * aeroRatio + 0.0015)));
+      hole.rotation.set(0, side === 1 ? 0 : Math.PI, ((side === 1 ? 1 : -1) * -fd.isoFlow.angleDeg * Math.PI) / 180);
+      root.add(hole);
+    }
+  }
+  if (sh.lugs) {
+    // Lug joints: slightly fatter collars where the tubes meet.
+    const lugMat = mats.paint('#2a2d31', 'gloss');
+    for (const [def, t] of [[T.top, 0.05], [T.top, 0.95], [T.down, 0.92], [T.seat, 0.9]] as const) {
+      const bz = def.pieces[0].bez;
+      const rP = mmR(def.wa + (def.wb - def.wa) * t) * 1.08;
+      root.add(tube(P(bezAt(bz, t - 0.025)), P(bezAt(bz, t + 0.025)), rP, rP * aeroRatio, lugMat));
+    }
+  }
+  if (sh.futureShock) {
+    const boot = mats.plain('#15181c', 0.7, 0.05);
+    const top = { x: fd.headTop.x + fd.headUp.x * 14, y: fd.headTop.y + fd.headUp.y * 14 };
+    root.add(tube(P(fd.headTop), P(top), mmR(T.head.wa) * 0.75, mmR(T.head.wa) * 0.75, boot));
+  }
 
   // Down-tube logos on both sides
   {
-    const a = P(g.bb);
-    const b = P(g.headBottom);
-    const mid = a.clone().lerp(b, 0.36);
-    const len = a.distanceTo(b) * 0.4;
+    const dz = T.down.pieces[0].bez;
+    const a = P(dz.a);
+    const b = P(dz.b);
+    const mid = a.clone().lerp(b, 0.42);
+    const len = a.distanceTo(b) * 0.36;
     const tex = textTexture(frame.brand.toUpperCase(), cw.decal, { italic: true });
     textures.push(tex);
-    const h = mmR(g.tube * 1.3) * 1.25;
+    const h = mmR(T.down.wa) * 1.25;
     const ang = Math.atan2(b.y - a.y, b.x - a.x);
-    const rL = mmR(g.tube * 1.3) * aeroRatio;
+    const rL = mmR(T.down.wa + (T.down.wb - T.down.wa) * 0.42) * aeroRatio;
     for (const side of [1, -1]) {
       const plane = new THREE.Mesh(
         new THREE.PlaneGeometry(len, h),
@@ -219,12 +283,13 @@ function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, texture
       root.add(plane);
     }
   }
+  const stayJoin = fd.stayJoin;
 
   // ── Wheels
   const look = wheels.look;
   const rimOuter = 0.311;
-  const rimDepth = Math.max(wheels.rimDepthMm, 12) / 1000;
-  const rimInner = rimOuter - rimDepth;
+  const depthOf = (rear: boolean) => Math.max((rear ? look.depthRear : look.depthFront) ?? wheels.rimDepthMm, 12) / 1000;
+  const rimDepth = depthOf(false);
   const rimHalfOut = (Math.max(wheels.internalWidthMm || 19, 17) + 6) / 2000;
   const rimHalfIn = rimHalfOut * (wheels.profile === 'shallow' ? 0.85 : 0.62);
   const rimMat = new THREE.MeshPhysicalMaterial({
@@ -237,11 +302,20 @@ function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, texture
   const tyreMat = mats.plain('#1a1c1f', 0.85, 0);
   const tanMat = mats.plain(TAN_WALL, 0.8, 0);
   const spokeMat = mats.plain(look.spokes ?? (look.rim === 'alloy-silver' ? '#a7b1bd' : '#2c3036'), 0.4, 0.6);
-  const decalTex = rimDecalTexture(look.decalText, look.decalColor, (rimOuter - rimDepth / 2) / rimOuter, rimDepth / rimOuter * (look.decalStyle === 'bold' ? 0.8 : 0.5), look.decalStyle === 'bold');
-  textures.push(decalTex);
+  const decalFor = (depth: number) => {
+    const t = rimDecalTexture(look.decalText, look.decalColor, (rimOuter - depth / 2) / rimOuter, (depth / rimOuter) * (look.decalStyle === 'bold' ? 0.8 : 0.5), look.decalStyle === 'bold');
+    textures.push(t);
+    return t;
+  };
+  const decalFront = decalFor(depthOf(false));
+  const decalRear = depthOf(true) === depthOf(false) ? decalFront : decalFor(depthOf(true));
+  void rimDepth;
   const disc = frame.compat.brakeType === 'disc';
 
   const makeWheel = (center: V3, solidDisc: boolean, rear: boolean) => {
+    const rimDepth = depthOf(rear);
+    const rimInner = rimOuter - rimDepth;
+    const decalTex = rear ? decalRear : decalFront;
     const w = new THREE.Group();
     w.position.copy(center);
     const tyreR = tyres.widthMm / 2000;
@@ -281,14 +355,16 @@ function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, texture
       dg.rotateX(Math.PI / 2);
       w.add(new THREE.Mesh(dg, rimMat));
     } else {
-      const n = 24;
+      const n = (rear ? look.spokesRear : look.spokesFront) ?? 24;
+      const lacing = rear ? look.lacing ?? '2x' : 'radial';
       for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2;
+        const [a, rimA] = spokeAngles(i, n, lacing);
         const side = i % 2 ? 1 : -1;
-        const hubPt = v3(Math.cos(a) * 0.022, Math.sin(a) * 0.022, side * (rear && side === 1 ? 0.02 : 0.03));
-        const rimA = a + (i % 2 ? 0.12 : -0.12);
+        const hubR = rear ? 0.026 : 0.022;
+        const hubPt = v3(Math.cos(a) * hubR, Math.sin(a) * hubR, side * (rear && side === 1 ? 0.02 : 0.03));
         const rimPt = v3(Math.cos(rimA) * rimInner, Math.sin(rimA) * rimInner, 0);
-        w.add(tube(hubPt, rimPt, 0.0011, 0.0011, spokeMat));
+        // Bladed spokes: flat in the wheel plane.
+        w.add(tube(hubPt, rimPt, 0.0016, 0.0008, spokeMat));
       }
     }
     // Rim decals on both sides (mirrored on the far side so the text reads correctly)
@@ -372,10 +448,15 @@ function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, texture
   if (rd.electronic) root.add(blob(v3(rearC.x + 0.03, rearC.y - 0.008, 0.074), 0.012, 0.007, 0.008, mats.plain(groupset.brand === 'SRAM' ? '#111' : '#2e3338', 0.4, 0.2)));
 
   // ── Seatpost and saddle
-  const st = { x: g.seatTop.x - g.bb.x, y: g.seatTop.y - g.bb.y };
-  const stLen = Math.hypot(st.x, st.y);
-  const postTop = { x: g.seatTop.x + (st.x / stLen) * 46, y: g.seatTop.y + (st.y / stLen) * 46 };
-  root.add(tube(P(g.seatTop), P(postTop), mmR(g.tube * 0.7), mmR(g.tube * 0.7) * 0.85, black));
+  const postTop = fd.post.b;
+  if (sh.seatMast) {
+    const mastTop = { x: g.seatTop.x + fd.post.dir.x * 16, y: g.seatTop.y + fd.post.dir.y * 16 };
+    root.add(tube(P(g.seatTop), P(mastTop), mmR(T.seat.wb), mmR(T.seat.wb) * aeroRatio, paintAt('seat', 1)));
+    root.add(tube(P(mastTop), P(postTop), mmR(g.tube * 0.75), mmR(g.tube * 0.75) * 0.7, black));
+  } else {
+    root.add(tube(P(fd.post.a), P(postTop), mmR(g.tube * 0.75), mmR(g.tube * 0.75) * 0.7, black));
+  }
+  if (sh.offAxisPost) root.add(blob(P(g.seatTop), mmR(T.seat.wb) * 1.1, mmR(T.seat.wb) * 1.1, mmR(T.seat.wb) * aeroRatio * 1.1, paintAt('seat', 1)));
   {
     const len = saddle.cutout && saddle.widthMm >= 140 ? 0.245 : 0.27;
     const wid = saddle.widthMm / 1000;
@@ -398,15 +479,20 @@ function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, texture
     root.add(tube(v3(pt.x - 0.06, pt.y + 0.008, 0), v3(pt.x + 0.06, pt.y + 0.01, 0), 0.006, 0.03, mats.plain('#6b7480', 0.4, 0.7)));
   }
 
-  // ── Cockpit
-  const stemLenPx = (bars.integratedStemMm ?? 100) * S;
-  const stemEnd2 = { x: g.headTop.x + stemLenPx, y: g.headTop.y - stemLenPx * 0.12 - 4 };
-  const ht = P(g.headTop);
-  const spacerTop = P({ x: g.headTop.x - 2, y: g.headTop.y - 8 });
-  root.add(tube(ht, spacerTop, mmR(g.tube * 1.15 + 2), mmR(g.tube * 1.15 + 2) * 0.75, black));
-  const se = P(stemEnd2);
+  // ── Cockpit (style per brand: normal stem, Cervélo V-stem, Colnago CC.Y1 out of the head tube, wing tops)
   const integrated = bars.barType === 'aero-integrated';
-  root.add(tube(spacerTop, se, integrated ? 0.016 : 0.013, integrated ? 0.012 : 0.013, integrated ? mats.plain('#141619', 0.45, 0.1) : black));
+  const carbonMat = mats.plain('#141619', 0.45, 0.1);
+  if (ck.spacers > 0) root.add(tube(P(fd.headTop), P(ck.stemStart), mmR(T.head.wa), mmR(T.head.wa) * 0.75, black));
+  if (bars.style === 'v-stem') {
+    root.add(tube(P(ck.stemStart), P(ck.stemEnd), 0.009, 0.014, carbonMat));
+    root.add(tube(P({ x: ck.stemStart.x + 4, y: ck.stemStart.y + 16 }), P(ck.stemEnd), 0.008, 0.014, carbonMat));
+  } else if (bars.style === 'y-cockpit') {
+    root.add(tube(P(ck.stemStart), P(ck.stemEnd), mmR(T.head.wa) * 0.8, 0.012, carbonMat));
+  } else {
+    root.add(tube(P(ck.stemStart), P(ck.stemEnd), integrated ? 0.016 : 0.013, integrated ? 0.012 : 0.013, integrated ? carbonMat : black));
+  }
+  if (bars.style === 'wing-kink' || bars.style === 'rise') root.add(tube(P(ck.stemEnd), P(ck.dropsStart), 0.012, 0.03, carbonMat));
+  const se = P(ck.dropsStart);
   const barMat = mats.plain('#141619', 0.7, 0.05);
   const halfW = 0.2;
   const hasDrops = bars.positions.includes('drops');

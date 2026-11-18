@@ -55,6 +55,14 @@ describe('compatibility checker', () => {
     expect(ids({ ...base, frame: 'frame-sworks-aethos' })).toContain('routing');
   });
 
+  it('the Y1Rs needs its own CC.Y1 cockpit, and the CC.Y1 fits only the Y1Rs', () => {
+    const y1 = PRESET_BUILDS.colnagoY1rsUae.selection;
+    expect(ids(y1)).toEqual([]);
+    expect(ids({ ...y1, handlebars: 'hb-zipp-sc70' })).toContain('frame-needs-cockpit');
+    expect(ids({ ...base, handlebars: 'hb-colnago-ccy1' })).toContain('cockpit-for-other-frame');
+    expect(ids({ ...base, handlebars: 'hb-colnago-cc01' })).not.toContain('cockpit-for-other-frame');
+  });
+
   it('narrow road tyre on wide gravel rim warns', () => {
     expect(ids({ ...PRESET_BUILDS.gravel.selection, tyres: 'ty-conti-gp5000str-25' })).toContain('rim-too-wide');
   });

@@ -46,7 +46,13 @@ src/
 Each frame in `frames.json` has `colourways`: base and accent colours, a paint layout (`solid`, `headBlock`,
 `rear`, `topTube`, `front`, `fade`), finish (gloss, matte, pearl, metallic), logo colour and optional stripes.
 `official: true` marks colourways confirmed from the maker or dealer listings; the rest are typical schemes.
-Wheels have a `look` (rim finish, decal text, colour and style) and tyres a `sidewall` (black or tan).
+Each frame also has a `shape` (seat-tube curve, top-tube slope, how low the stays join, tube depths, fork
+style, and features such as nose cones, lugs, Trek IsoFlow, Future Shock, top-tube storage or the Y1Rs
+off-axis seatpost); `ui/bike/frameShape.ts` turns it into curved, tapered tubes for 2D, 3D and the
+simulator. Brand cockpits (Colnago CC.Y1 / CC.01, Cervélo V-stem, Canyon CP0018, Pinarello Talon, Trek RSL)
+have their own drawing style and only fit their frames.
+Wheels have a `look` (rim finish, decal text and model, front/rear depth, spoke counts, lacing) and tyres a
+`sidewall` (black or tan).
 The same paint rules drive the 2D drawing (`ui/builder/BikeIllustration.tsx`) and the 3D model
 (`ui/bike/Bike3D.tsx`, three.js, loaded only when you open the 3D view). These are illustrations built
 from the parts' data, not brand photos or logos.

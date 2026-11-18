@@ -96,11 +96,56 @@ export interface Colourway {
   official: boolean;
 }
 
+/** Side-view shape of a frame model. Lengths in drawing units (0.5 per mm); depths are multiples of the base tube size. */
+export interface FrameShapeData {
+  /** How far the seat tube bows forward around the rear wheel. */
+  stCurve: number;
+  /** Where the top tube meets the seat tube (0 = BB, 1 = top of seat tube). Lower = more sloping. */
+  ttJoin: number;
+  /** Upward (+) or downward (−) bow of the top tube. */
+  ttBend: number;
+  /** Downward bow of the down tube. */
+  dtBend: number;
+  /** Where the seat stays meet the seat tube (0–1). Low = "dropped" stays. */
+  stayJoin: number;
+  stays: 'straight' | 'wavy' | 'bowed';
+  depth: {
+    dt: [number, number];
+    tt: [number, number];
+    st: [number, number];
+    ht: number;
+    cs: [number, number];
+    ss: [number, number];
+    fork: number;
+  };
+  /** Length of an aero nose cone in front of the head tube (e.g. Specialized "Speed Sniffer"). */
+  nose: number;
+  /** Extra head tube height above the top tube. */
+  headUp: number;
+  fork: 'straight' | 'curved' | 'wavy' | 'bayonet';
+  /** Visible lug joints (Colnago C68 / C64). */
+  lugs: boolean;
+  /** Trek IsoFlow: an opening through the seat mast. */
+  isoFlow: boolean;
+  /** Specialized Future Shock: a sprung boot above the head tube. */
+  futureShock: boolean;
+  /** Storage box on the top tube (TT/triathlon). */
+  bento: boolean;
+  /** Integrated seat mast with a topper instead of a round seatpost. */
+  seatMast: boolean;
+  /** Seatpost leaves the frame at its own angle, forming a Y junction (Colnago Y1Rs). */
+  offAxisPost: boolean;
+}
+
 export interface Frame extends BaseComponent {
   category: 'frame';
   colourways: Colourway[];
   /** Where the model sits in its brand's line-up. */
   range: 'top' | 'mid' | 'entry';
+  /** How this model's frame is shaped (overrides the defaults for its frame type). See ui/bike/frameShape.ts. */
+  shape?: Partial<FrameShapeData>;
+  /** Proprietary cockpits: the frame only works with these handlebar ids. */
+  requiresBars?: string[];
   frameType: FrameType;
   geometry: GeometryFamily;
   /** Widest tyre (mm) the frame fits with safe clearance. */
@@ -124,6 +169,15 @@ export interface WheelLook {
   decalStyle: 'bold' | 'subtle';
   /** Spoke colour (a few wheels have coloured spokes). */
   spokes?: string;
+  /** Rim depth front / rear (mm) when they differ (e.g. ENVE SES 4.5: 50 / 56). */
+  depthFront?: number;
+  depthRear?: number;
+  spokesFront?: number;
+  spokesRear?: number;
+  /** Rear lacing pattern: two-cross, Campagnolo G3 (spokes in threes) or Fulcrum 2:1. Fronts are radial. */
+  lacing?: '2x' | 'g3' | '2to1';
+  /** Zipp NSW "Sawtooth" rims have a wavy inner edge. */
+  wavyRim?: boolean;
 }
 
 export interface Wheels extends BaseComponent {
@@ -172,6 +226,13 @@ export interface Handlebars extends BaseComponent {
   positions: RidingPosition[];
   /** Integrated stem length (mm) where fixed; null when a separate stem is used. */
   integratedStemMm: number | null;
+  /**
+   * Drawing style for brand cockpits: 'v-stem' (Cervélo), 'y-cockpit' (Colnago CC.Y1, fixed into the
+   * head tube), 'wing-kink' (Canyon Aerocockpit), 'rise' (Pinarello Talon). Omit for the usual shapes.
+   */
+  style?: 'v-stem' | 'y-cockpit' | 'wing-kink' | 'rise';
+  /** Proprietary cockpit: only fits these frame ids. */
+  fitsFrames?: string[];
 }
 
 export interface Saddle extends BaseComponent {

@@ -9,7 +9,7 @@ import { buildGeometry } from '../physics/route';
 import { resolveWind, crosswindCdaPenalty } from '../physics/wind';
 import type { Route, Surface } from '../physics/types';
 import type { BuildSelection, Frame, Groupset, Handlebars, RearDerailleur, Saddle, Tyres, Wheels } from '../types/components';
-import { checkCompatibility, matchingDerailleur } from './compatibility';
+import { barFitsFrame, checkCompatibility, matchingDerailleur } from './compatibility';
 import { PRESET_BUILDS } from './presets';
 import { comfortScore } from './comfort';
 import { fitRider } from './fit';
@@ -148,7 +148,8 @@ export function autoBuild(budgetAed: number, priority: Priority, rider: RiderPro
           const price = p2 + tyres.price;
           if (price > budgetAed) continue;
           const core = { frame, wheels, groupset: g, rd, tyres };
-          const est = estimateTime({ ...core, bars: cheapestBars, saddle: cheapestSaddle }, rider, bins, priority);
+          const placeholderBars = frame.requiresBars ? (catalog.handlebars.find((h) => h.id === frame.requiresBars![0]) ?? cheapestBars) : cheapestBars;
+          const est = estimateTime({ ...core, bars: placeholderBars, saddle: cheapestSaddle }, rider, bins, priority);
           evaluated++;
           const comfortProxy = (frame.comfort * 0.2 + tyres.comfort * 0.2) / 0.4;
           const score = priority === 'comfort' ? -comfortProxy * 1000 + est.total * 0.05 : priority === 'allround' ? est.total * (1 + (10 - comfortProxy) * ALLROUND_COMFORT_WEIGHT) : est.weighted;
@@ -165,7 +166,7 @@ export function autoBuild(budgetAed: number, priority: Priority, rider: RiderPro
     const left = budgetAed - (price - reserve);
     let best: { sel: BuildSelection; score: number; price: number } | null = null;
     for (const bars of catalog.handlebars) {
-      if (bars.barType === 'aero-integrated' && !core.frame.internalRouting) continue;
+      if (!barFitsFrame(bars, core.frame)) continue;
       for (const saddle of catalog.saddle) {
         if (bars.price + saddle.price > left) continue;
         const pos = effectivePosition(rider.position, bars);

@@ -114,7 +114,7 @@ export const PRO_GHOSTS: { id: string; name: string; blurb: string; selection: B
       wheels: 'wheels-zipp-404-firecrest',
       groupset: 'gs-shimano-da-di2',
       rearDerailleur: 'rd-shimano-da-r9250',
-      handlebars: 'hb-vision-metron-5d',
+      handlebars: 'hb-cervelo-vstem',
       saddle: 'sd-sworks-power-mirror',
       tyres: 'ty-vittoria-corsa-pro-28',
     },
