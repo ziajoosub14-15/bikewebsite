@@ -5,16 +5,43 @@ import { sampleAtTime } from '../../domain/ride';
 import { useElementWidth } from '../common';
 import { duration } from '../format';
 import { gradeColor } from './grade';
+import type { ResolvedBuild } from '../../domain/bikeModel';
+import type { Position } from '../../physics/types';
+import type { Colourway } from '../../types/components';
+import { bikeLayout, bikeSprite, drawBikeAndRider, type BikeLayout } from '../bike/bikeSprite';
+import { drawBackdrop } from '../bike/backdrops';
 
 export interface AnimRider {
   name: string;
+  /** Kit colour (jersey/helmet) and marker colour. */
   color: string;
   sim: SimResult;
+  /** The configured bike; when given, the animation draws it instead of a generic bike. */
+  bike?: { parts: ResolvedBuild; colourway: Colourway };
+  position?: Position;
+}
+
+function drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, label: string, color: string, row: number, scale: number) {
+  const fs = 11 * Math.min(scale, 1.2);
+  ctx.font = `600 ${fs}px Inter, system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  const ly = y - row * (fs + 6);
+  const w = ctx.measureText(label).width + 12;
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath();
+  ctx.roundRect(x - w / 2, ly - fs, w, fs + 6, 4);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillRect(x - w / 2, ly - fs, 3, fs + 6);
+  ctx.fillStyle = '#0b0b0b';
+  ctx.fillText(label, x + 1, ly);
 }
 
 interface Props {
   route: Route;
   riders: AnimRider[];
+  /** Background scene id (see ui/bike/backdrops). */
+  scene?: string;
   /** Called with the leader's distance, so a chart can show a marker. */
   onPosition?: (distM: number) => void;
   height?: number;
@@ -104,7 +131,7 @@ function drawRider(ctx: CanvasRenderingContext2D, x: number, y: number, angle: n
   }
 }
 
-export function RideAnimation({ route, riders, onPosition, height = 300 }: Props) {
+export function RideAnimation({ route, riders, onPosition, height = 300, scene }: Props) {
   const [wrapRef, width] = useElementWidth<HTMLDivElement>();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const geo = useMemo(() => buildGeometry(route), [route]);
@@ -113,6 +140,44 @@ export function RideAnimation({ route, riders, onPosition, height = 300 }: Props
   const [speed, setSpeed] = useState(autoSpeed);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // Pre-painted scenery (redrawn only when the size or scene changes).
+  const sceneCanvas = useMemo(() => {
+    if (!scene || scene === 'studio' || typeof document === 'undefined') return null;
+    const c = document.createElement('canvas');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const camH = height - 46 - 8;
+    c.width = Math.round(width * dpr);
+    c.height = Math.round(camH * dpr);
+    const x = c.getContext('2d')!;
+    x.scale(dpr, dpr);
+    drawBackdrop(x, width, camH, scene, 1);
+    return c;
+  }, [scene, width, height]);
+  // Images of each rider's configured bike (drawn without wheels) and where its wheels go.
+  const [sprites, setSprites] = useState<Record<string, { img: HTMLImageElement; layout: BikeLayout }>>({});
+  const spriteKey = riders.map((r) => (r.bike ? `${r.name}:${Object.values(r.bike.parts).map((p) => p.id).join(',')}:${JSON.stringify(r.bike.colourway)}` : r.name)).join('|');
+  useEffect(() => {
+    let alive = true;
+    Promise.all(
+      riders.map(async (r) => {
+        if (!r.bike) return null;
+        try {
+          return [r.name, { img: await bikeSprite(r.bike.parts, r.bike.colourway), layout: bikeLayout(r.bike.parts) }] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((list) => {
+      if (!alive) return;
+      const out: Record<string, { img: HTMLImageElement; layout: BikeLayout }> = {};
+      for (const e of list) if (e) out[e[0]] = e[1];
+      setSprites(out);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spriteKey]);
   const tRef = useRef(0);
 
   // Reset only when the ride itself changes (not on every parent re-render).
@@ -164,13 +229,6 @@ export function RideAnimation({ route, riders, onPosition, height = 300 }: Props
 
     const miniH = 46;
     const camH = height - miniH - 8;
-    // Sky
-    const sky = ctx.createLinearGradient(0, 0, 0, camH);
-    sky.addColorStop(0, '#e9f3fb');
-    sky.addColorStop(1, '#f8fafc');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, width, camH);
-
     // Follow camera: centre on the leader (or the pack when it fits).
     const ds = states.map((s) => s.s.distM);
     const spread = Math.max(...ds) - Math.min(...ds);
@@ -182,14 +240,16 @@ export function RideAnimation({ route, riders, onPosition, height = 300 }: Props
     const yOf = (d: number) => camH * 0.68 - (geo.elevationAt(Math.max(0, Math.min(geo.totalM, d))) - camElev) * pxPerM * VEXAG;
     const scale = Math.max(0.7, Math.min(1.5, width / 700)) * (windowM > 600 ? 0.85 : 1);
 
-    // Distant hills for depth
-    ctx.fillStyle = '#dbe7ef';
-    ctx.beginPath();
-    ctx.moveTo(0, camH);
-    for (let px = 0; px <= width; px += 8) ctx.lineTo(px, camH * 0.55 + Math.sin((px + m0 * 0.3) / 90) * 14 + Math.sin((px + m0 * 0.2) / 37) * 6);
-    ctx.lineTo(width, camH);
-    ctx.fill();
-
+    if (sceneCanvas) {
+      ctx.drawImage(sceneCanvas, 0, 0, width, camH);
+    } else {
+      // Sky
+      const sky = ctx.createLinearGradient(0, 0, 0, camH);
+      sky.addColorStop(0, '#e9f3fb');
+      sky.addColorStop(1, '#f8fafc');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, width, camH);
+    }
     // Road and ground, coloured by gradient
     const step = Math.max(2, windowM / width) * 2;
     for (let d = m0; d < m0 + windowM; d += step) {
@@ -199,15 +259,33 @@ export function RideAnimation({ route, riders, onPosition, height = 300 }: Props
       const x1 = (d + step - m0) * pxPerM + 0.5;
       const y0 = yOf(d);
       const y1 = yOf(d + step);
-      ctx.fillStyle = gradeColor(seg.gradePct);
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.lineTo(x1, camH);
-      ctx.lineTo(x0, camH);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      if (sceneCanvas) {
+        // Solid earth under the road, with a gradient-coloured strip just below the surface.
+        ctx.fillStyle = '#4a3f37';
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x1, camH);
+        ctx.lineTo(x0, camH);
+        ctx.fill();
+        ctx.fillStyle = gradeColor(seg.gradePct);
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x1, y1 + 9);
+        ctx.lineTo(x0, y0 + 9);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = gradeColor(seg.gradePct);
+        ctx.globalAlpha = 0.35;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x1, camH);
+        ctx.lineTo(x0, camH);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     }
     ctx.strokeStyle = '#3a3936';
     ctx.lineWidth = 4;
@@ -232,7 +310,7 @@ export function RideAnimation({ route, riders, onPosition, height = 300 }: Props
     }
     // Distance markers
     ctx.font = '11px Inter, system-ui, sans-serif';
-    ctx.fillStyle = '#6b6a65';
+    ctx.fillStyle = sceneCanvas ? '#efe9e2' : '#6b6a65';
     ctx.textAlign = 'center';
     const markEvery = windowM > 800 ? 500 : 100;
     for (let d = Math.ceil(m0 / markEvery) * markEvery; d < m0 + windowM; d += markEvery) {
@@ -254,7 +332,23 @@ export function RideAnimation({ route, riders, onPosition, height = 300 }: Props
       let row = 0;
       while (placed.some((p) => p.row === row && Math.abs(p.x - px) < 150)) row++;
       placed.push({ x: px, row });
-      drawRider(ctx, px, yOf(s.distM) - 2, ang, r.color, crank, scale, riders.length > 1 ? r.name : undefined, row);
+      const sp = sprites[r.name];
+      if (sp) {
+        const k = 0.12 * scale;
+        drawBikeAndRider(ctx, sp.img, sp.layout, {
+          x: px,
+          y: yOf(s.distM) + 1,
+          angle: ang,
+          pxPerUnit: k,
+          wheelPhase: s.distM / 0.34,
+          crank: s.coasting ? 0.5 : s.distM / 1.4,
+          kit: r.color,
+          position: r.position ?? 'drops',
+        });
+        if (riders.length > 1) drawLabel(ctx, px, yOf(s.distM) - 88 * scale, r.name, r.color, row, scale);
+      } else {
+        drawRider(ctx, px, yOf(s.distM) - 2, ang, r.color, crank, scale, riders.length > 1 ? r.name : undefined, row);
+      }
     });
 
     // Mini map
@@ -283,7 +377,7 @@ export function RideAnimation({ route, riders, onPosition, height = 300 }: Props
       ctx.arc(px, myOf(s.distM), 4, 0, Math.PI * 2);
       ctx.fill();
     }
-  }, [t, width, height, states, leader, geo, route, riders.length, riders]);
+  }, [t, width, height, states, leader, geo, route, riders.length, riders, sprites, sceneCanvas]);
 
   return (
     <div>

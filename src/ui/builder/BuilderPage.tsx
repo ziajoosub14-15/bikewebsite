@@ -10,6 +10,8 @@ import { BikeIllustration } from './BikeIllustration';
 import { ColourwayPicker } from './ColourwayPicker';
 import { resolveColourway } from '../bike/paint';
 import { Segmented } from '../common';
+import { BACKDROPS } from '../bike/backdrops';
+import { BackdropCanvas } from '../bike/BackdropCanvas';
 
 const Bike3D = lazy(() => import('../bike/Bike3D'));
 import { PartPicker } from './PartPicker';
@@ -76,7 +78,7 @@ export function GarageBar() {
 }
 
 export function BuilderPage() {
-  const { state, choose } = useStore();
+  const { state, choose, setBackdrop } = useStore();
   const { build, update } = useActiveBuild();
   const summary = useMemo(() => summarize(build, state.rider), [build, state.rider]);
   const colourway = resolveColourway(summary.parts.frame, build.colourwayId, build.paint);
@@ -123,19 +125,39 @@ export function BuilderPage() {
                 ))}
               </select>
             </div>
-            <div className="flex justify-end px-4 pt-2 sm:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-2 sm:px-6">
+              <div className="flex items-center gap-1.5" role="radiogroup" aria-label="Background scene">
+                <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Scene</span>
+                {BACKDROPS.map((b) => (
+                  <button
+                    key={b.id}
+                    role="radio"
+                    aria-checked={state.backdrop === b.id}
+                    aria-label={b.name}
+                    title={b.name}
+                    onClick={() => setBackdrop(b.id)}
+                    className={`h-6 w-9 rounded-md border border-black/15 transition hover:scale-110 ${state.backdrop === b.id ? 'ring-2 ring-slate-900 ring-offset-2' : ''}`}
+                    style={{ background: `linear-gradient(180deg, ${b.swatch[0]} 0%, ${b.swatch[0]} 45%, ${b.swatch[1]} 100%)` }}
+                  />
+                ))}
+              </div>
               <div className="w-32">
                 <Segmented size="sm" label="View" value={viewMode} onChange={setViewMode} options={[{ value: '2d', label: '2D' }, { value: '3d', label: '3D' }]} />
               </div>
             </div>
             {viewMode === '2d' ? (
-              <div className="px-1 sm:px-4">
-                <BikeIllustration build={summary.parts} colourway={colourway} highlight={active} />
+              <div className="relative mx-3 mt-3 overflow-hidden rounded-2xl sm:mx-4">
+                <BackdropCanvas id={state.backdrop} />
+                <div className="relative px-1 sm:px-3">
+                  <BikeIllustration build={summary.parts} colourway={colourway} highlight={active} floorLine={state.backdrop === 'studio'} />
+                </div>
               </div>
             ) : (
-              <Suspense fallback={<div className="flex h-80 items-center justify-center text-sm text-slate-500">Loading 3D…</div>}>
-                <Bike3D parts={summary.parts} colourway={colourway} />
-              </Suspense>
+              <div className="mx-3 mt-3 overflow-hidden rounded-2xl sm:mx-4">
+                <Suspense fallback={<div className="flex h-80 items-center justify-center text-sm text-slate-500">Loading 3D…</div>}>
+                  <Bike3D parts={summary.parts} colourway={colourway} backdrop={state.backdrop} />
+                </Suspense>
+              </div>
             )}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 bg-white/60 px-4 py-3 backdrop-blur sm:px-6">
               <ColourwayPicker frame={summary.parts.frame} colourwayId={colourway.id} paint={build.paint} onChange={(colourwayId, paint) => update({ colourwayId, ...(paint ? { paint } : {}) })} />

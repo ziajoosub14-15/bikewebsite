@@ -194,9 +194,15 @@ interface Props {
   build: ResolvedBuild;
   colourway: Colourway;
   highlight?: Category | null;
+  /** Draw the dashed floor line (only on the plain studio background). */
+  floorLine?: boolean;
+  /** Leave the wheels out (the ride animation draws its own spinning wheels). */
+  wheels?: boolean;
+  /** Ground shadow under the bike. */
+  shadow?: boolean;
 }
 
-export function BikeIllustration({ build, colourway: cw, highlight }: Props) {
+export function BikeIllustration({ build, colourway: cw, highlight, floorLine = true, wheels: showWheels = true, shadow = true }: Props) {
   const uid = useId().replace(/:/g, '');
   const { frame, wheels, groupset, rearDerailleur: rd, handlebars: bars, saddle, tyres } = build;
   const g = geometry(frame.frameType);
@@ -242,10 +248,10 @@ export function BikeIllustration({ build, colourway: cw, highlight }: Props) {
   const pedal = { x: g.bb.x + Math.cos(crankAngle) * 172.5 * S, y: g.bb.y + Math.sin(crankAngle) * 172.5 * S };
 
   const hl = (cat: Category) => (highlight === cat ? `url(#${uid}-glow)` : undefined);
-  const dim = (cat: Category) => (highlight && highlight !== cat ? 0.82 : 1);
+  const dim = (_cat: Category) => 1;
 
   return (
-    <svg viewBox="40 60 920 520" className="h-auto w-full select-none" role="img" aria-label={`${frame.brand} ${frame.name} with ${groupset.brand} ${groupset.name}`}>
+    <svg xmlns="http://www.w3.org/2000/svg" width={920} height={520} viewBox="40 60 920 520" className="relative h-auto w-full select-none" role="img" aria-label={`${frame.brand} ${frame.name} with ${groupset.brand} ${groupset.name}`}>
       <defs>
         <radialGradient id={`${uid}-rear-disc`} cx="0.4" cy="0.35" r="0.8">
           <stop offset="0" stopColor="#3b4450" />
@@ -260,15 +266,15 @@ export function BikeIllustration({ build, colourway: cw, highlight }: Props) {
         </filter>
       </defs>
 
-      <ellipse cx={510} cy={groundY + 4} rx={360} ry={16} fill={`url(#${uid}-shadow)`} />
-      <line x1={70} x2={950} y1={groundY} y2={groundY} stroke="#cbd5e1" strokeWidth={1} strokeDasharray="2 6" />
+      {shadow && <ellipse cx={510} cy={groundY + 4} rx={360} ry={16} fill={`url(#${uid}-shadow)`} />}
+      {floorLine && <line x1={70} x2={950} y1={groundY} y2={groundY} stroke="#cbd5e1" strokeWidth={1} strokeDasharray="2 6" />}
 
       <g transform={`translate(0 ${lift})`}>
         {/* Wheels and tyres */}
-        <g filter={hl('wheels') ?? hl('tyres')} opacity={Math.max(dim('wheels'), dim('tyres'))}>
+        {showWheels && <g filter={hl('wheels') ?? hl('tyres')} opacity={Math.max(dim('wheels'), dim('tyres'))}>
           <Wheel c={g.rear} idBase={`${uid}-rear`} tyreMm={tyres.widthMm} tread={tyres.tread} rimDepthMm={wheels.rimDepthMm} carbon={wheels.look.rim.startsWith('carbon')} solidDisc={wheels.profile === 'disc'} discBrake={disc} look={wheels.look} sidewall={tyres.sidewall} />
           <Wheel c={g.front} idBase={`${uid}-front`} tyreMm={tyres.widthMm} tread={tyres.tread} rimDepthMm={wheels.rimDepthMm} carbon={wheels.look.rim.startsWith('carbon')} solidDisc={false} discBrake={disc} look={wheels.look} sidewall={tyres.sidewall} />
-        </g>
+        </g>}
 
         {/* Cassette, chain, derailleur */}
         <g filter={hl('groupset') ?? hl('rearDerailleur')} opacity={Math.max(dim('groupset'), dim('rearDerailleur'))}>

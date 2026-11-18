@@ -25,6 +25,7 @@ export function PartPicker({ category, selection, onChoose }: Props) {
   const [brandByCat, setBrandByCat] = useState<Partial<Record<Category, string>>>({});
   const [sort, setSort] = useState<Sort>('default');
   const [hideIncompatible, setHideIncompatible] = useState(false);
+  const [range, setRange] = useState<'all' | 'top' | 'mid' | 'entry'>('all');
   const brand = brandByCat[category] ?? 'All';
 
   const parts = listComponents(category) as BikeComponent[];
@@ -38,6 +39,7 @@ export function PartPicker({ category, selection, onChoose }: Props) {
   const rows = useMemo(() => {
     const withIssues = parts.map((p) => ({ part: p, issues: issuesIfSwapped(selection, category, p.id) }));
     let list = withIssues.filter((r) => brand === 'All' || r.part.brand === brand);
+    if (category === 'frame' && range !== 'all') list = list.filter((r) => r.part.category === 'frame' && r.part.range === range);
     if (hideIncompatible) list = list.filter((r) => r.part.id === selection[category] || !r.issues.some((i) => i.severity === 'error'));
     const by: Record<Sort, (a: BikeComponent, b: BikeComponent) => number> = {
       default: () => 0,
@@ -48,7 +50,7 @@ export function PartPicker({ category, selection, onChoose }: Props) {
       comfort: (a, b) => b.comfort - a.comfort,
     };
     return [...list].sort((a, b) => by[sort](a.part, b.part));
-  }, [parts, selection, category, brand, sort, hideIncompatible]);
+  }, [parts, selection, category, brand, sort, hideIncompatible, range]);
 
   const incompatibleCount = parts.filter((p) => issuesIfSwapped(selection, category, p.id).some((i) => i.severity === 'error')).length;
 
@@ -101,6 +103,29 @@ export function PartPicker({ category, selection, onChoose }: Props) {
           ))}
         </div>
       </div>
+
+      {category === 'frame' && (
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by model range">
+          <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Range</span>
+          {(
+            [
+              ['all', 'All'],
+              ['top', 'Top models'],
+              ['mid', 'Mid-range'],
+              ['entry', 'Entry'],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => setRange(v)}
+              aria-pressed={range === v}
+              className={`rounded-full border px-3 py-1 text-sm font-medium transition ${range === v ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
+            >
+              {label} <span className={range === v ? 'text-white/60' : 'text-slate-400'}>{v === 'all' ? parts.length : parts.filter((p) => p.category === 'frame' && p.range === v).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
         {rows.map(({ part, issues }) => (

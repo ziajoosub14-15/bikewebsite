@@ -16,6 +16,8 @@ export interface AppState {
   conditions: Conditions;
   routeId: string;
   customRoutes: Route[];
+  /** Scene behind the bike in the builder. */
+  backdrop: string;
 }
 
 const KEY = 'velolab.state.v2';
@@ -46,6 +48,7 @@ function initialState(): AppState {
     conditions: { ...DEFAULT_CONDITIONS, ...saved?.conditions },
     routeId,
     customRoutes,
+    backdrop: saved?.backdrop ?? 'mountain-dusk',
   };
 }
 
@@ -60,7 +63,8 @@ type Action =
   | { type: 'addBuild'; build: StoredBuild }
   | { type: 'duplicate'; id: string }
   | { type: 'delete'; id: string }
-  | { type: 'activate'; id: string };
+  | { type: 'activate'; id: string }
+  | { type: 'backdrop'; id: string };
 
 function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
@@ -108,6 +112,8 @@ function reducer(s: AppState, a: Action): AppState {
     }
     case 'activate':
       return s.builds.some((b) => b.id === a.id) ? { ...s, activeId: a.id } : s;
+    case 'backdrop':
+      return { ...s, backdrop: a.id };
   }
 }
 
@@ -129,6 +135,7 @@ function useAppState() {
       duplicate: (id: string) => dispatch({ type: 'duplicate', id }),
       remove: (id: string) => dispatch({ type: 'delete', id }),
       activate: (id: string) => dispatch({ type: 'activate', id }),
+      setBackdrop: (id: string) => dispatch({ type: 'backdrop', id }),
     }),
     [],
   );

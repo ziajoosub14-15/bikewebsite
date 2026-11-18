@@ -6,7 +6,9 @@ import { RideAnimation } from '../charts/RideAnimation';
 import { Card, SERIES_COLORS } from '../common';
 import { aed, duration } from '../format';
 import { ConditionsPanel, compassName } from '../ride/ConditionsPanel';
+import { sceneForRoute } from '../bike/backdrops';
 import { RoutePicker } from '../ride/RoutePicker';
+import { resolveColourway } from '../bike/paint';
 
 export function RacePage() {
   const { state, route } = useStore();
@@ -32,8 +34,21 @@ export function RacePage() {
   const series = useMemo(() => race?.entries.map((e) => ({ name: e.entrant.name, color: colorOf(e.entrant.id), sim: e.sim })) ?? [], // eslint-disable-next-line react-hooks/exhaustive-deps
     [race]);
   const [markerM, setMarkerM] = useState<number | undefined>();
-  const animRiders = useMemo(() => race?.entries.map((e) => ({ name: e.entrant.name, color: colorOf(e.entrant.id), sim: e.sim })) ?? [], // eslint-disable-next-line react-hooks/exhaustive-deps
-    [race]);
+  const animRiders = useMemo(
+    () =>
+      race?.entries.map((e) => {
+        const spec = e.entrant.spec as { colourwayId?: string; paint?: string };
+        return {
+          name: e.entrant.name,
+          color: colorOf(e.entrant.id),
+          sim: e.sim,
+          bike: { parts: e.setup.parts, colourway: resolveColourway(e.setup.parts.frame, spec.colourwayId, spec.paint ?? '#d1263b') },
+          position: e.setup.rider.position,
+        };
+      }) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [race],
+  );
   const c = state.conditions;
 
   return (
@@ -85,7 +100,7 @@ export function RacePage() {
       ) : (
         <>
           <Card title="Race" subtitle={`${route.name} · ${state.rider.weightKg} kg rider at ${Math.round((state.rider.ftpW * state.rider.ftpPct) / 100)} W`}>
-            <RideAnimation route={route} riders={animRiders} onPosition={setMarkerM} height={340} />
+            <RideAnimation route={route} riders={animRiders} onPosition={setMarkerM} height={360} scene={sceneForRoute(route.id, state.backdrop)} />
           </Card>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">

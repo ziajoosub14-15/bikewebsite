@@ -99,6 +99,8 @@ export interface Colourway {
 export interface Frame extends BaseComponent {
   category: 'frame';
   colourways: Colourway[];
+  /** Where the model sits in its brand's line-up. */
+  range: 'top' | 'mid' | 'entry';
   frameType: FrameType;
   geometry: GeometryFamily;
   /** Widest tyre (mm) the frame fits with safe clearance. */

@@ -5,6 +5,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import type { ResolvedBuild } from '../../domain/bikeModel';
 import type { Colourway, Finish } from '../../types/components';
 import { geometry, lerp, S, WHEEL_Y, type Pt } from '../builder/BikeIllustration';
+import { BACKDROPS, drawBackdrop } from './backdrops';
 import { RIM_COLORS, TAN_WALL, tubeSegments, tubeStripes, type TubeId } from './paint';
 
 type V3 = THREE.Vector3;
@@ -447,7 +448,7 @@ function buildBike(parts: ResolvedBuild, cw: Colourway, mats: Materials, texture
 
 // ───────────────────────── React component ─────────────────────────
 
-export default function Bike3D({ parts, colourway }: { parts: ResolvedBuild; colourway: Colourway }) {
+export default function Bike3D({ parts, colourway, backdrop = 'studio' }: { parts: ResolvedBuild; colourway: Colourway; backdrop?: string }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const ctx = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -458,6 +459,8 @@ export default function Bike3D({ parts, colourway }: { parts: ResolvedBuild; col
     mats?: Materials;
     textures: THREE.Texture[];
     anim?: { from: V3; to: V3; t0: number };
+    floor?: THREE.Mesh;
+    bgTex?: THREE.Texture;
   } | null>(null);
   const [view, setView] = useState<ViewId>('three-quarter');
   const [spin, setSpin] = useState(false);
@@ -520,7 +523,7 @@ export default function Bike3D({ parts, colourway }: { parts: ResolvedBuild; col
     disc.receiveShadow = true;
     scene.add(disc);
 
-    ctx.current = { renderer, scene, camera, controls, textures: [] };
+    ctx.current = { renderer, scene, camera, controls, textures: [], floor: disc };
 
     const resize = () => {
       const w = mount.clientWidth;
@@ -559,6 +562,7 @@ export default function Bike3D({ parts, colourway }: { parts: ResolvedBuild; col
         if (o instanceof THREE.Mesh && o.geometry !== UNIT_CYL && o.geometry !== UNIT_SPHERE) o.geometry.dispose();
       });
       envTex.dispose();
+      c?.bgTex?.dispose();
       pmrem.dispose();
       renderer.dispose();
       mount.removeChild(renderer.domElement);
@@ -587,6 +591,23 @@ export default function Bike3D({ parts, colourway }: { parts: ResolvedBuild; col
   useEffect(() => {
     if (ctx.current) ctx.current.controls.autoRotate = spin;
   }, [spin]);
+
+  // Painted scene behind the bike, and a matching floor.
+  useEffect(() => {
+    const c = ctx.current;
+    if (!c) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 900;
+    drawBackdrop(canvas.getContext('2d')!, 1600, 900, backdrop, 0.7);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    c.bgTex?.dispose();
+    c.bgTex = tex;
+    c.scene.background = tex;
+    const floorColor = BACKDROPS.find((b) => b.id === backdrop)?.ground ?? '#e2e8f0';
+    if (c.floor) (c.floor.material as THREE.MeshStandardMaterial).color.set(floorColor);
+  }, [backdrop]);
 
   const goTo = (v: ViewId) => {
     setView(v);

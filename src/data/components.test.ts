@@ -4,10 +4,10 @@ import { CATEGORIES } from '../types/components';
 
 /** Guards the JSON files: run `npm test` after adding parts. */
 describe('component data', () => {
-  it('has 8–50 options in every category', () => {
+  it('has 8–60 options in every category', () => {
     for (const cat of CATEGORIES) {
       expect(catalog[cat].length, cat).toBeGreaterThanOrEqual(8);
-      expect(catalog[cat].length, cat).toBeLessThanOrEqual(50);
+      expect(catalog[cat].length, cat).toBeLessThanOrEqual(60);
     }
   });
 

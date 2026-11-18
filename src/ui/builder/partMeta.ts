@@ -81,7 +81,7 @@ const TYPE: Record<string, string> = {
 export function factsFor(c: BikeComponent): string[] {
   switch (c.category) {
     case 'frame':
-      return [TYPE[c.frameType], c.compat.brakeType === 'rim' ? 'Rim brake' : 'Disc', `Tyres ≤ ${c.maxTyreWidthMm} mm`];
+      return [c.range === 'top' ? 'Top model' : c.range === 'mid' ? 'Mid-range' : 'Entry', TYPE[c.frameType], c.compat.brakeType === 'rim' ? 'Rim brake' : 'Disc', `Tyres ≤ ${c.maxTyreWidthMm} mm`];
     case 'wheels':
       return [`${c.rimDepthMm} mm deep`, c.profile === 'disc' ? 'Rear disc' : c.rimType === 'tubular' ? 'Tubular' : 'Tubeless-ready', c.compat.brakeType === 'rim' ? 'Rim brake' : 'Disc'];
     case 'groupset':

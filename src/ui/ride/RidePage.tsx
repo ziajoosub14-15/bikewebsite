@@ -5,12 +5,15 @@ import { useActiveBuild, useStore } from '../../state/store';
 import { ProfileChart } from '../charts/ProfileChart';
 import { RideAnimation } from '../charts/RideAnimation';
 import { Card, Slider, Tile } from '../common';
-import { duration } from '../format';
+import { aed, duration } from '../format';
 import { GarageBar } from '../builder/BuilderPage';
 import { ConditionsPanel } from './ConditionsPanel';
+import { sceneForRoute } from '../bike/backdrops';
 import { RoutePicker } from './RoutePicker';
 import { POSITION_LABEL } from '../../domain/rider';
 import { isLightHex, resolveColourway } from '../bike/paint';
+import { BackdropCanvas } from '../bike/BackdropCanvas';
+import { BikeIllustration } from '../builder/BikeIllustration';
 
 function EnergyBreakdown({ e }: { e: ReturnType<typeof runRide>['sim']['energy'] }) {
   const rows = [
@@ -67,7 +70,12 @@ export function RidePage() {
   const series = useMemo(() => [{ name: build.name, color: '#2a78d6', sim }], [build.name, sim]);
   const cw = resolveColourway(setup.parts.frame, build.colourwayId, build.paint);
   const riderColor = isLightHex(cw.base) ? (cw.accent && !isLightHex(cw.accent) ? cw.accent : '#334155') : cw.base;
-  const riders = useMemo(() => [{ name: build.name, color: riderColor, sim }], [build.name, riderColor, sim]);
+  const kit = cw.accent && !isLightHex(cw.accent) ? cw.accent : riderColor;
+  const riders = useMemo(
+    () => [{ name: build.name, color: kit, sim, bike: { parts: setup.parts, colourway: cw }, position: setup.rider.position }],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [build.name, kit, sim, setup.parts, JSON.stringify(cw), setup.rider.position],
+  );
 
   return (
     <div className="space-y-4">
@@ -96,6 +104,33 @@ export function RidePage() {
         </aside>
 
         <div className="min-w-0 space-y-6">
+          <section className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:flex-row">
+            <div className="relative sm:w-[46%]">
+              <BackdropCanvas id={state.backdrop} />
+              <div className="relative px-2 pt-2">
+                <BikeIllustration build={setup.parts} colourway={cw} floorLine={state.backdrop === 'studio'} />
+              </div>
+            </div>
+            <div className="flex-1 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Your bike</div>
+              <div className="text-lg font-extrabold tracking-tight">{build.name}</div>
+              <div className="text-xs text-slate-500">{cw.name}</div>
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+                <dt className="text-slate-500">Frame</dt>
+                <dd className="truncate">{setup.parts.frame.brand} {setup.parts.frame.name} · {setup.fit.sizeCm} cm</dd>
+                <dt className="text-slate-500">Wheels</dt>
+                <dd className="truncate">{setup.parts.wheels.brand} {setup.parts.wheels.name}</dd>
+                <dt className="text-slate-500">Groupset</dt>
+                <dd className="truncate">{setup.parts.groupset.brand} {setup.parts.groupset.name}</dd>
+                <dt className="text-slate-500">Tyres</dt>
+                <dd className="truncate">{setup.parts.tyres.brand} {setup.parts.tyres.widthMm} mm · {setup.tyrePressureBar.toFixed(1)} bar</dd>
+                <dt className="text-slate-500">Weight</dt>
+                <dd className="tabular-nums">{setup.weightKg.toFixed(2)} kg · {aed(setup.priceAed)}</dd>
+              </dl>
+              <a href="#/build" className="mt-2 inline-block text-sm font-medium text-brand-700 underline">Change parts</a>
+            </div>
+          </section>
+
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Tile label="Total time" value={duration(sim.totalTimeS)} tone="brand" sub={`${(sim.distanceM / 1000).toFixed(1)} km · ${route.name}`} />
             <Tile label="Avg speed" value={(sim.avgSpeedMs * 3.6).toFixed(1)} unit="km/h" sub={`avg power ${Math.round(sim.avgPowerW)} W`} />
@@ -108,7 +143,7 @@ export function RidePage() {
           </Card>
 
           <Card title="Ride animation" subtitle="Side view, gradients exaggerated so you can see them. Watch the rider slow on climbs, coast and brake on descents.">
-            <RideAnimation route={route} riders={riders} onPosition={setMarkerM} />
+            <RideAnimation route={route} riders={riders} onPosition={setMarkerM} scene={sceneForRoute(route.id, state.backdrop)} height={340} />
           </Card>
 
           <div className="grid gap-6 xl:grid-cols-2">
