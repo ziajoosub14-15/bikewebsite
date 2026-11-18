@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import type { ResolvedBuild } from '../../domain/bikeModel';
-import type { Category, Colourway, FrameType, WheelLook } from '../../types/components';
+import type { Category, Colourway, Finish, FrameType, WheelLook } from '../../types/components';
 import { RIM_COLORS, TAN_WALL, hexMix, tubeSegments, tubeStripes, type TubeId } from '../bike/paint';
 
 /** Pixels per millimetre. Wheels, tyres, rims, chainrings and cogs are drawn to scale. */
@@ -40,45 +40,89 @@ export function geometry(type: FrameType): FrameGeo {
   }
 }
 
-/**
- * A tube painted in segments (colour blocks, fades) over a dark outline, with a highlight for gloss,
- * pearl and metallic finishes and optional stripes.
- */
-function PaintedTube({ a, b, w, cw, tube, xAt, outline }: { a: Pt; b: Pt; w: number; cw: Colourway; tube: TubeId; xAt: (p: Pt) => number; outline: string }) {
-  const at = (t: number) => lerp(a, b, t);
-  const segs = tubeSegments(cw, tube, (t) => xAt(at(t)));
-  const stripes = tubeStripes(cw, tube);
-  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-  // Unit normal pointing "up" in screen space, for the highlight line.
-  let nx = -(b.y - a.y) / len;
-  let ny = (b.x - a.x) / len;
-  if (ny > 0) {
-    nx = -nx;
-    ny = -ny;
+/** Gradient stops across a tube's width, so it reads as a rounded, lit tube. */
+function tubeStops(c: string, finish: Finish): [number, string, number?][] {
+  const dk = (k: number) => hexMix(c, '#000000', k);
+  const lt = (k: number) => hexMix(c, finish === 'pearl' ? '#e3ecff' : '#ffffff', k);
+  switch (finish) {
+    case 'matte':
+      return [[0, dk(0.32)], [0.22, lt(0.06)], [0.45, c], [0.8, dk(0.12)], [1, dk(0.42)]];
+    case 'metallic':
+      return [[0, dk(0.4)], [0.16, c], [0.3, lt(0.7)], [0.4, lt(0.15)], [0.7, dk(0.1)], [0.9, lt(0.12)], [1, dk(0.5)]];
+    case 'pearl':
+      return [[0, dk(0.25)], [0.18, c], [0.3, lt(0.75)], [0.42, c], [0.85, dk(0.08)], [1, dk(0.35)]];
+    default:
+      return [[0, dk(0.38)], [0.17, c], [0.29, lt(0.6)], [0.38, c], [0.82, dk(0.12)], [1, dk(0.48)]];
   }
+}
+
+/** A solid black carbon "colourway" for seatposts, stems and other components. */
+const CARBON: Colourway = { id: 'carbon', name: 'Carbon', base: '#1e2226', pattern: 'solid', finish: 'gloss', decal: '#ffffff', official: false };
+
+/**
+ * A tapered, shaded tube from a (width wa) to b (width wb), painted in colourway segments.
+ * `range` lets one logical tube (e.g. a curved fork) be drawn as several straight pieces.
+ */
+function ShadedTube(props: { a: Pt; b: Pt; wa: number; wb: number; cw: Colourway; tube: TubeId; xAt: (p: Pt) => number; uid: string; range?: [number, number]; caps?: boolean; name?: string }) {
+  const { a, b, wa, wb, cw, tube, xAt, uid } = props;
+  const [r0, r1] = props.range ?? [0, 1];
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  let n = { x: -(b.y - a.y) / len, y: (b.x - a.x) / len };
+  if (n.y > 0) n = { x: -n.x, y: -n.y }; // normal pointing up the screen: the lit side
+  const at = (t: number) => lerp(a, b, t);
+  const w = (t: number) => wa + (wb - wa) * t;
+  const edge = (t: number, side: number) => {
+    const p = at(t);
+    return `${(p.x + n.x * side * w(t) / 2).toFixed(1)},${(p.y + n.y * side * w(t) / 2).toFixed(1)}`;
+  };
+  // Paint segments in this piece's local t (0–1), mapped from the logical tube's range.
+  const segs = tubeSegments(cw, tube, (lt) => xAt(at((lt - r0) / (r1 - r0))))
+    .map((sg) => ({ ...sg, t0: (Math.max(sg.t0, r0) - r0) / (r1 - r0), t1: (Math.min(sg.t1, r1) - r0) / (r1 - r0) }))
+    .filter((sg) => sg.t1 > sg.t0 + 1e-6);
+  const stripes = tubeStripes(cw, tube)
+    .map((st) => ({ ...st, t: (st.t - r0) / (r1 - r0), width: st.width / (r1 - r0) }))
+    .filter((st) => st.t > 0 && st.t < 1);
+  const wMax = Math.max(wa, wb);
+  const mid = at(0.5);
+  const gx1 = mid.x + (n.x * wMax) / 2;
+  const gy1 = mid.y + (n.y * wMax) / 2;
+  const gx2 = mid.x - (n.x * wMax) / 2;
+  const gy2 = mid.y - (n.y * wMax) / 2;
+  const outline = hexMix(cw.base, '#000000', 0.6);
+  const gid = (i: number | string) => `${uid}-${props.name ?? tube}-${r0.toFixed(2)}-${i}`;
+  const poly = (t0: number, t1: number, grow = 0) => {
+    const e = (t: number, side: number) => {
+      const p = at(t);
+      const hw = w(t) / 2 + grow;
+      return `${(p.x + n.x * side * hw).toFixed(1)},${(p.y + n.y * side * hw).toFixed(1)}`;
+    };
+    return `${e(t0, 1)} ${e(t1, 1)} ${e(t1, -1)} ${e(t0, -1)}`;
+  };
+  void edge;
+  const caps = props.caps ?? true;
   return (
     <>
-      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={outline} strokeWidth={w + 2.5} strokeLinecap="round" />
-      {segs.map((sg, i) => {
-        const p0 = at(sg.t0);
-        const p1 = at(sg.t1);
-        const cap = (i === 0 && sg.t0 === 0) || (i === segs.length - 1 && sg.t1 === 1) ? 'round' : 'butt';
-        return <line key={i} x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke={sg.color} strokeWidth={w} strokeLinecap={cap} />;
-      })}
-      {stripes.map((st, i) => {
-        const p0 = at(st.t - st.width / 2);
-        const p1 = at(st.t + st.width / 2);
-        return <line key={`s${i}`} x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke={st.color} strokeWidth={w} />;
-      })}
-      {segs.map((sg, i) => {
-        if (sg.finish === 'matte') return null;
-        const p0 = at(Math.max(sg.t0, 0.04));
-        const p1 = at(Math.min(sg.t1, 0.96));
-        const off = w * 0.28;
-        const hl = sg.finish === 'pearl' ? '#dfe9ff' : '#ffffff';
-        const op = sg.finish === 'metallic' ? 0.45 : sg.finish === 'pearl' ? 0.6 : 0.32;
-        return <line key={`h${i}`} x1={p0.x + nx * off} y1={p0.y + ny * off} x2={p1.x + nx * off} y2={p1.y + ny * off} stroke={hl} strokeOpacity={op} strokeWidth={Math.max(1, w * 0.18)} strokeLinecap="round" />;
-      })}
+      <defs>
+        {[...segs.map((sg, i) => [i, sg.color, sg.finish] as const), ...stripes.map((st, i) => [`s${i}`, st.color, 'gloss' as Finish] as const)].map(([i, c, f]) => (
+          <linearGradient key={String(i)} id={gid(i)} gradientUnits="userSpaceOnUse" x1={gx1} y1={gy1} x2={gx2} y2={gy2}>
+            {tubeStops(c, f).map(([o, col]) => (
+              <stop key={o} offset={o} stopColor={col} />
+            ))}
+          </linearGradient>
+        ))}
+      </defs>
+      {/* outline */}
+      <polygon points={poly(0, 1, 0.9)} fill={outline} />
+      {caps && <circle cx={a.x} cy={a.y} r={wa / 2 + 0.9} fill={outline} />}
+      {caps && <circle cx={b.x} cy={b.y} r={wb / 2 + 0.9} fill={outline} />}
+      {caps && segs.length > 0 && <circle cx={a.x} cy={a.y} r={wa / 2} fill={`url(#${gid(0)})`} />}
+      {caps && segs.length > 0 && <circle cx={b.x} cy={b.y} r={wb / 2} fill={`url(#${gid(segs.length - 1)})`} />}
+      {segs.map((sg, i) => (
+        <polygon key={i} points={poly(sg.t0, sg.t1 + (i < segs.length - 1 ? 0.004 : 0))} fill={`url(#${gid(i)})`} />
+      ))}
+      {stripes.map((st, i) => (
+        <polygon key={`s${i}`} points={poly(st.t - st.width / 2, st.t + st.width / 2)} fill={`url(#${gid(`s${i}`)})`} />
+      ))}
     </>
   );
 }
@@ -89,101 +133,146 @@ function Wheel(props: {
   tyreMm: number;
   tread: string;
   rimDepthMm: number;
-  carbon: boolean;
   solidDisc: boolean;
   discBrake: boolean;
+  rear: boolean;
   look: WheelLook;
   sidewall: 'black' | 'tan';
+  tyreBrand: string;
 }) {
-  const { c, tyreMm, rimDepthMm, solidDisc, discBrake, look } = props;
+  const { c, tyreMm, rimDepthMm, solidDisc, discBrake, look, idBase } = props;
   const tyreH = tyreMm * S * 0.95;
   const R = (311 + tyreMm) * S;
   const rimOuter = R - tyreH;
   const rimH = Math.max(rimDepthMm * S, 6);
   const rimInner = rimOuter - rimH;
-  const rimColor = RIM_COLORS[look.rim];
-  const rimEdge = look.rim === 'alloy-silver' ? '#8a95a3' : '#3a424c';
-  const spokeColor = look.spokes ?? (look.rim === 'alloy-silver' ? '#9aa5b1' : '#3a4048');
-  const textR = rimOuter - rimH / 2;
-  const arcId = `${props.idBase}-arc`;
-  const spokes = 24;
+  const carbon = look.rim.startsWith('carbon');
+  const base = RIM_COLORS[look.rim];
+  const sheen = look.rim === 'carbon-gloss' ? 0.22 : look.rim === 'carbon-matte' ? 0.12 : look.rim === 'alloy-silver' ? 0.35 : 0.14;
+  const spokeColor = look.spokes ?? (look.rim === 'alloy-silver' ? '#a3adb8' : '#15181c');
+  const f = (r: number) => Math.max(0, Math.min(1, r / R));
+  const textR = rimOuter - rimH * 0.52;
+  const arcId = `${idBase}-arc`;
+  const tyreArc = `${idBase}-tarc`;
+  const tyreTextR = R - tyreH * 0.52;
+  const n = 24;
+  const bold = look.decalStyle === 'bold';
+  const mainSize = Math.max(7, Math.min(rimH * (bold ? 0.6 : 0.5), bold ? 20 : 17));
+  const brakeTrack = !discBrake;
   return (
     <g>
+      <defs>
+        {/* Tyre: rounded, slightly lighter at the shoulders */}
+        <radialGradient id={`${idBase}-tyre`} gradientUnits="userSpaceOnUse" cx={c.x} cy={c.y} r={R}>
+          <stop offset={f(rimOuter)} stopColor="#2a2e33" />
+          <stop offset={f(rimOuter + tyreH * 0.35)} stopColor="#16191c" />
+          <stop offset={f(R - tyreH * 0.25)} stopColor="#1c1f23" />
+          <stop offset={1} stopColor="#2c3035" />
+        </radialGradient>
+        {/* Rim: deep carbon profile with a soft band of sheen */}
+        <radialGradient id={`${idBase}-rim`} gradientUnits="userSpaceOnUse" cx={c.x} cy={c.y} r={R}>
+          <stop offset={f(rimInner)} stopColor={hexMix(base, '#000000', 0.45)} />
+          <stop offset={f(rimInner + rimH * 0.18)} stopColor={base} />
+          <stop offset={f(rimInner + rimH * 0.55)} stopColor={hexMix(base, '#ffffff', sheen)} />
+          <stop offset={f(rimInner + rimH * 0.85)} stopColor={base} />
+          <stop offset={f(rimOuter)} stopColor={hexMix(base, '#000000', 0.3)} />
+        </radialGradient>
+        <radialGradient id={`${idBase}-disc`} gradientUnits="userSpaceOnUse" cx={c.x - rimOuter * 0.25} cy={c.y - rimOuter * 0.3} r={rimOuter * 1.3}>
+          <stop offset={0} stopColor="#3a4048" />
+          <stop offset={0.6} stopColor="#1d2125" />
+          <stop offset={1} stopColor="#0f1113" />
+        </radialGradient>
+        <radialGradient id={`${idBase}-hub`} cx="0.4" cy="0.35" r="0.7">
+          <stop offset={0} stopColor="#59616b" />
+          <stop offset={1} stopColor="#191d22" />
+        </radialGradient>
+      </defs>
+
       {/* Tyre */}
-      <circle cx={c.x} cy={c.y} r={R - tyreH / 2} fill="none" stroke="#1d232b" strokeWidth={tyreH} />
+      <circle cx={c.x} cy={c.y} r={R - tyreH / 2} fill="none" stroke={`url(#${idBase}-tyre)`} strokeWidth={tyreH} />
       {props.tread !== 'slick' && (
-        <circle
-          cx={c.x}
-          cy={c.y}
-          r={R - 1.2}
-          fill="none"
-          stroke="#1d232b"
-          strokeWidth={props.tread === 'knob' ? 4 : 2}
-          strokeDasharray={props.tread === 'knob' ? '4 5' : '2 3'}
-        />
+        <circle cx={c.x} cy={c.y} r={R - 1.2} fill="none" stroke="#14171a" strokeWidth={props.tread === 'knob' ? 4.5 : 2} strokeDasharray={props.tread === 'knob' ? '4 5' : '2 3'} />
       )}
-      {props.sidewall === 'tan' ? (
-        <circle cx={c.x} cy={c.y} r={R - tyreH * 0.68} fill="none" stroke={TAN_WALL} strokeWidth={tyreH * 0.5} />
-      ) : (
-        <circle cx={c.x} cy={c.y} r={R - tyreH * 0.3} fill="none" stroke="#3a434f" strokeWidth={1} opacity={0.6} />
+      {props.sidewall === 'tan' && <circle cx={c.x} cy={c.y} r={R - tyreH * 0.66} fill="none" stroke={TAN_WALL} strokeWidth={tyreH * 0.5} />}
+      <path id={tyreArc} d={`M ${c.x - tyreTextR} ${c.y} a ${tyreTextR} ${tyreTextR} 0 1 1 ${2 * tyreTextR} 0 a ${tyreTextR} ${tyreTextR} 0 1 1 ${-2 * tyreTextR} 0`} fill="none" />
+      {tyreH >= 11 && (
+        <text fontSize={Math.min(tyreH * 0.42, 8)} fontWeight={800} letterSpacing={1.2} fill={props.sidewall === 'tan' ? '#5b4630' : '#8a9097'} dominantBaseline="central">
+          <textPath href={`#${tyreArc}`} startOffset="30%">
+            {props.tyreBrand.toUpperCase()}
+          </textPath>
+          <textPath href={`#${tyreArc}`} startOffset="80%">
+            {props.tyreBrand.toUpperCase()}
+          </textPath>
+        </text>
       )}
-      {/* Spinning part: rim, spokes or disc, logo */}
+
+      {/* Spinning part: spokes, rim or disc, decals */}
       <g className="wheel-spin">
         {solidDisc ? (
-          <circle cx={c.x} cy={c.y} r={rimOuter} fill={`url(#${props.idBase}-disc)`} stroke={rimEdge} strokeWidth={1.5} />
+          <circle cx={c.x} cy={c.y} r={rimOuter} fill={`url(#${idBase}-disc)`} stroke="#0c0e10" strokeWidth={1.2} />
         ) : (
           <>
-            {Array.from({ length: spokes }, (_, i) => {
-              const a = (i / spokes) * Math.PI * 2;
-              const hubR = i % 2 ? 9 : 14;
+            {Array.from({ length: n }, (_, i) => {
+              const a = (i / n) * Math.PI * 2;
+              // Front: radial lacing. Rear: two-cross, spokes leave the hub flange at a tangent.
+              const hubR = props.rear ? 21 : 16;
+              const cross = props.rear ? (i % 2 ? 0.42 : -0.42) : 0;
               return (
                 <line
                   key={i}
                   x1={c.x + Math.cos(a) * hubR}
                   y1={c.y + Math.sin(a) * hubR}
-                  x2={c.x + Math.cos(a + (i % 2 ? 0.12 : -0.12)) * rimInner}
-                  y2={c.y + Math.sin(a + (i % 2 ? 0.12 : -0.12)) * rimInner}
+                  x2={c.x + Math.cos(a + cross) * (rimInner + 1)}
+                  y2={c.y + Math.sin(a + cross) * (rimInner + 1)}
                   stroke={spokeColor}
-                  strokeWidth={look.spokes ? 1.5 : 1}
+                  strokeWidth={carbon || look.spokes ? 1.9 : 1.2}
+                  strokeLinecap="round"
                 />
               );
             })}
-            <circle cx={c.x} cy={c.y} r={rimOuter - rimH / 2} fill="none" stroke={rimColor} strokeWidth={rimH} />
-            <circle cx={c.x} cy={c.y} r={rimInner} fill="none" stroke={rimEdge} strokeWidth={1} />
+            <circle cx={c.x} cy={c.y} r={rimOuter - rimH / 2} fill="none" stroke={`url(#${idBase}-rim)`} strokeWidth={rimH} />
+            <circle cx={c.x} cy={c.y} r={rimInner} fill="none" stroke={hexMix(base, '#000000', 0.55)} strokeWidth={1} />
+            {/* Valve */}
+            <rect x={c.x + Math.cos(-1.1) * rimInner - 2} y={c.y + Math.sin(-1.1) * rimInner - 6} width={4} height={10} rx={1.5} fill="#8b939c" transform={`rotate(${(-1.1 * 180) / Math.PI + 90} ${c.x + Math.cos(-1.1) * rimInner} ${c.y + Math.sin(-1.1) * rimInner})`} />
           </>
         )}
-        <path
-          id={arcId}
-          d={`M ${c.x - textR} ${c.y} a ${textR} ${textR} 0 1 1 ${2 * textR} 0 a ${textR} ${textR} 0 1 1 ${-2 * textR} 0`}
-          fill="none"
-        />
+        {brakeTrack && <circle cx={c.x} cy={c.y} r={rimOuter - 3} fill="none" stroke={carbon ? '#2e3338' : '#9aa3ad'} strokeWidth={5} />}
+        {look.rim === 'carbon-gloss' && <path d={`M ${c.x + Math.cos(-2.6) * textR} ${c.y + Math.sin(-2.6) * textR} A ${textR} ${textR} 0 0 1 ${c.x + Math.cos(-1.9) * textR} ${c.y + Math.sin(-1.9) * textR}`} stroke="#ffffff" strokeOpacity={0.18} strokeWidth={rimH * 0.35} fill="none" strokeLinecap="round" />}
+        <path id={arcId} d={`M ${c.x - textR} ${c.y} a ${textR} ${textR} 0 1 1 ${2 * textR} 0 a ${textR} ${textR} 0 1 1 ${-2 * textR} 0`} fill="none" />
         {rimH >= 9 && (
-          <text
-            fontSize={Math.max(6, Math.min(rimH * (look.decalStyle === 'bold' ? 0.62 : 0.42), look.decalStyle === 'bold' ? 18 : 11))}
-            fontWeight={look.decalStyle === 'bold' ? 900 : 700}
-            letterSpacing={look.decalStyle === 'bold' ? 2 : 1.5}
-            fill={look.decalColor}
-            opacity={look.decalStyle === 'bold' ? 1 : 0.85}
-            dominantBaseline="central"
-          >
-            <textPath href={`#${arcId}`} startOffset="12%">
-              {look.decalText}
-            </textPath>
-            <textPath href={`#${arcId}`} startOffset="62%">
-              {look.decalText}
-            </textPath>
+          <text dominantBaseline="central" fill={look.decalColor}>
+            {[8, 58].map((start) => (
+              <textPath key={start} href={`#${arcId}`} startOffset={`${start}%`}>
+                <tspan fontSize={mainSize} fontWeight={bold ? 900 : 800} letterSpacing={bold ? 2.5 : 3}>
+                  {look.decalText}
+                </tspan>
+                {look.decalSub && rimH >= 16 && (
+                  <tspan fontSize={mainSize * 0.45} fontWeight={700} letterSpacing={1} dx={8} opacity={0.85}>
+                    {look.decalSub}
+                  </tspan>
+                )}
+              </textPath>
+            ))}
           </text>
         )}
       </g>
+
       {/* Disc rotor */}
       {discBrake && (
         <g>
-          <circle cx={c.x} cy={c.y} r={80 * S} fill="none" stroke="#a7b1bd" strokeWidth={4} />
-          <circle cx={c.x} cy={c.y} r={80 * S - 6} fill="none" stroke="#d3d9e0" strokeWidth={1} strokeDasharray="3 3" />
+          <circle cx={c.x} cy={c.y} r={80 * S - 2.5} fill="none" stroke="#c3cad2" strokeWidth={5} />
+          <circle cx={c.x} cy={c.y} r={80 * S - 2.5} fill="none" stroke="#7d8792" strokeWidth={2.2} strokeDasharray="2 5" />
+          {Array.from({ length: 6 }, (_, i) => {
+            const a = (i / 6) * Math.PI * 2 + 0.3;
+            return <line key={i} x1={c.x + Math.cos(a) * 13} y1={c.y + Math.sin(a) * 13} x2={c.x + Math.cos(a + 0.25) * (80 * S - 5)} y2={c.y + Math.sin(a + 0.25) * (80 * S - 5)} stroke="#2a2f35" strokeWidth={3.5} strokeLinecap="round" />;
+          })}
         </g>
       )}
-      <circle cx={c.x} cy={c.y} r={9} fill="#2f3741" />
-      <circle cx={c.x} cy={c.y} r={3.5} fill="#9aa5b1" />
+      {/* Hub */}
+      <circle cx={c.x} cy={c.y} r={props.rear ? 21 : 17} fill={`url(#${idBase}-hub)`} />
+      <circle cx={c.x} cy={c.y} r={props.rear ? 15 : 12} fill="none" stroke="#6b737d" strokeWidth={1.2} />
+      <circle cx={c.x} cy={c.y} r={5.5} fill="#aab3bd" />
+      <circle cx={c.x} cy={c.y} r={2.2} fill="#3b4148" />
     </g>
   );
 }
@@ -207,6 +296,7 @@ export function BikeIllustration({ build, colourway: cw, highlight, floorLine = 
   const { frame, wheels, groupset, rearDerailleur: rd, handlebars: bars, saddle, tyres } = build;
   const g = geometry(frame.frameType);
   const outline = hexMix(cw.base, '#000000', 0.5);
+  void outline;
   const decal = cw.decal;
   const disc = frame.compat.brakeType === 'disc';
   const xAt = (p: Pt) => (p.x - g.rear.x) / (g.front.x - g.rear.x);
@@ -221,7 +311,6 @@ export function BikeIllustration({ build, colourway: cw, highlight, floorLine = 
   const seatCluster = lerp(g.bb, g.seatTop, 0.93);
   const stayJoin = lerp(g.bb, g.seatTop, g.stayJoin);
   const dtAngle = (Math.atan2(g.headBottom.y - g.bb.y, g.headBottom.x - g.bb.x) * 180) / Math.PI;
-  const dtMid = lerp(g.bb, g.headBottom, 0.4);
 
   // Saddle and seatpost
   const stDir = { x: (g.seatTop.x - g.bb.x) / Math.hypot(g.seatTop.x - g.bb.x, g.seatTop.y - g.bb.y), y: (g.seatTop.y - g.bb.y) / Math.hypot(g.seatTop.x - g.bb.x, g.seatTop.y - g.bb.y) };
@@ -272,8 +361,8 @@ export function BikeIllustration({ build, colourway: cw, highlight, floorLine = 
       <g transform={`translate(0 ${lift})`}>
         {/* Wheels and tyres */}
         {showWheels && <g filter={hl('wheels') ?? hl('tyres')} opacity={Math.max(dim('wheels'), dim('tyres'))}>
-          <Wheel c={g.rear} idBase={`${uid}-rear`} tyreMm={tyres.widthMm} tread={tyres.tread} rimDepthMm={wheels.rimDepthMm} carbon={wheels.look.rim.startsWith('carbon')} solidDisc={wheels.profile === 'disc'} discBrake={disc} look={wheels.look} sidewall={tyres.sidewall} />
-          <Wheel c={g.front} idBase={`${uid}-front`} tyreMm={tyres.widthMm} tread={tyres.tread} rimDepthMm={wheels.rimDepthMm} carbon={wheels.look.rim.startsWith('carbon')} solidDisc={false} discBrake={disc} look={wheels.look} sidewall={tyres.sidewall} />
+          <Wheel c={g.rear} rear idBase={`${uid}-rear`} tyreMm={tyres.widthMm} tread={tyres.tread} rimDepthMm={wheels.rimDepthMm} solidDisc={wheels.profile === 'disc'} discBrake={disc} look={wheels.look} sidewall={tyres.sidewall} tyreBrand={tyres.brand} />
+          <Wheel c={g.front} rear={false} idBase={`${uid}-front`} tyreMm={tyres.widthMm} tread={tyres.tread} rimDepthMm={wheels.rimDepthMm} solidDisc={false} discBrake={disc} look={wheels.look} sidewall={tyres.sidewall} tyreBrand={tyres.brand} />
         </g>}
 
         {/* Cassette, chain, derailleur */}
@@ -304,30 +393,61 @@ export function BikeIllustration({ build, colourway: cw, highlight, floorLine = 
 
         {/* Frame */}
         <g filter={hl('frame')} opacity={dim('frame')}>
-          {/* stays first, so the main triangle overlaps them */}
-          <PaintedTube a={g.rear} b={stayJoin} w={g.tube * 0.55} cw={cw} tube="seatstay" xAt={xAt} outline={outline} />
-          <PaintedTube a={g.rear} b={g.bb} w={g.tube * 0.7} cw={cw} tube="chainstay" xAt={xAt} outline={outline} />
-          <PaintedTube a={g.bb} b={g.seatTop} w={g.tube} cw={cw} tube="seat" xAt={xAt} outline={outline} />
-          <PaintedTube a={seatCluster} b={{ x: g.headTop.x + 2, y: g.headTop.y + 8 }} w={g.tube * 0.9} cw={cw} tube="top" xAt={xAt} outline={outline} />
-          <PaintedTube a={g.bb} b={g.headBottom} w={g.tube * 1.3} cw={cw} tube="down" xAt={xAt} outline={outline} />
-          <PaintedTube a={g.headTop} b={g.headBottom} w={g.tube * 1.15 + 2} cw={cw} tube="head" xAt={xAt} outline={outline} />
-          {/* Fork: drawn as a straight-ish painted tube from crown to axle */}
-          <PaintedTube a={g.headBottom} b={g.front} w={g.tube * 0.85} cw={cw} tube="fork" xAt={xAt} outline={outline} />
-          {/* Down-tube decal */}
-          <text
-            transform={`translate(${dtMid.x} ${dtMid.y}) rotate(${dtAngle})`}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={Math.max(8, Math.min(g.tube * 0.95, 16))}
-            fontWeight={900}
-            fontStyle="italic"
-            letterSpacing={Math.max(1, g.tube * 0.18)}
-            fill={decal}
-          >
-            {frame.brand.toUpperCase()}
-          </text>
+          {/* Rear end: stays and dropout (behind the main triangle) */}
+          <ShadedTube uid={uid} a={g.rear} b={stayJoin} wa={g.tube * 0.42} wb={g.tube * 0.6} cw={cw} tube="seatstay" xAt={xAt} />
+          <ShadedTube uid={uid} a={g.rear} b={g.bb} wa={g.tube * 0.5} wb={g.tube * 0.95} cw={cw} tube="chainstay" xAt={xAt} />
+          <path d={`M ${g.rear.x - 9} ${g.rear.y + 3} l 6 -14 l 16 4 l -4 14 z`} fill="#24282d" />
+          {/* Main triangle: tapered tubes, fat down tube, flared head tube */}
+          <ShadedTube uid={uid} a={g.bb} b={g.seatTop} wa={g.tube * 1.2} wb={g.tube * 0.95} cw={cw} tube="seat" xAt={xAt} />
+          <ShadedTube uid={uid} a={seatCluster} b={{ x: g.headTop.x + 2, y: g.headTop.y + 8 }} wa={g.tube * 0.85} wb={g.tube * 1.05} cw={cw} tube="top" xAt={xAt} />
+          <ShadedTube uid={uid} a={g.bb} b={g.headBottom} wa={g.tube * 1.6} wb={g.tube * 1.3} cw={cw} tube="down" xAt={xAt} />
+          {/* Fork: tapered and gently curved, drawn as three straight pieces */}
+          {[0, 1, 2].map((k) => {
+            const pt = (t: number) => {
+              const ctrl = { x: g.front.x - 10, y: g.headBottom.y + (g.front.y - g.headBottom.y) * 0.55 };
+              const u = 1 - t;
+              return { x: u * u * g.headBottom.x + 2 * u * t * ctrl.x + t * t * g.front.x, y: u * u * g.headBottom.y + 2 * u * t * ctrl.y + t * t * g.front.y };
+            };
+            const t0 = k / 3;
+            const t1 = (k + 1) / 3;
+            const wAt = (t: number) => g.tube * (1.25 - 0.8 * t);
+            return <ShadedTube key={k} uid={uid} a={pt(t0)} b={pt(t1)} wa={wAt(t0)} wb={wAt(t1)} cw={cw} tube="fork" xAt={xAt} range={[t0, t1]} />;
+          })}
+          <ShadedTube uid={uid} a={g.headTop} b={g.headBottom} wa={g.tube * 1.25 + 2} wb={g.tube * 1.6 + 3} cw={cw} tube="head" xAt={xAt} />
           {/* Bottom bracket shell */}
-          <circle cx={g.bb.x} cy={g.bb.y} r={g.tube * 0.75 + 4} fill={outline} />
+          {(() => {
+            const bbCol = tubeSegments(cw, 'seat', () => 0.4)[0];
+            return (
+              <>
+                <circle cx={g.bb.x} cy={g.bb.y} r={g.tube * 0.95 + 4} fill={hexMix(bbCol.color, '#000000', 0.6)} />
+                <circle cx={g.bb.x} cy={g.bb.y} r={g.tube * 0.95 + 3} fill={hexMix(bbCol.color, '#000000', 0.12)} />
+              </>
+            );
+          })()}
+          {/* Down-tube logo, sized to fit the painted area it sits on */}
+          {(() => {
+            const dtLen = Math.hypot(g.headBottom.x - g.bb.x, g.headBottom.y - g.bb.y);
+            const seg = tubeSegments(cw, 'down', (t) => xAt(lerp(g.bb, g.headBottom, t))).find((sg) => sg.t0 <= 0.32 && sg.t1 >= 0.32) ?? { t0: 0, t1: 1 };
+            const s0 = Math.max(0.24, seg.t0 + 0.03);
+            const s1 = Math.min(0.78, seg.t1 - 0.04);
+            const centre = lerp(g.bb, g.headBottom, (s0 + s1) / 2);
+            const width = g.tube * (1.6 - 0.3 * ((s0 + s1) / 2));
+            return (
+              <text
+                transform={`translate(${centre.x} ${centre.y}) rotate(${dtAngle})`}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={Math.max(8, Math.min(width * 0.62, 18))}
+                fontWeight={900}
+                fontStyle="italic"
+                textLength={(s1 - s0) * dtLen * 0.86}
+                lengthAdjust="spacingAndGlyphs"
+                fill={decal}
+              >
+                {frame.brand.toUpperCase()}
+              </text>
+            );
+          })()}
           {cw.detail && <circle cx={g.headTop.x + 1} cy={g.headTop.y + 18} r={Math.max(3, g.tube * 0.3)} fill={cw.detail} />}
         </g>
 
@@ -348,7 +468,7 @@ export function BikeIllustration({ build, colourway: cw, highlight, floorLine = 
 
         {/* Seatpost + saddle */}
         <g filter={hl('saddle')} opacity={dim('saddle')}>
-          <line x1={g.seatTop.x} y1={g.seatTop.y} x2={postTop.x} y2={postTop.y} stroke="#20262e" strokeWidth={g.tube * 0.7} strokeLinecap="round" />
+          <ShadedTube uid={uid} name="post" a={g.seatTop} b={postTop} wa={g.tube * 0.8} wb={g.tube * 0.7} cw={CARBON} tube="seat" xAt={xAt} />
           <path
             d={`M ${postTop.x - sLen * 0.45} ${postTop.y - padH}
                q ${sLen * 0.08} ${-padH * 0.6} ${sLen * 0.3} ${-padH * 0.3}
@@ -364,16 +484,8 @@ export function BikeIllustration({ build, colourway: cw, highlight, floorLine = 
         {/* Cockpit */}
         <g filter={hl('handlebars')} opacity={dim('handlebars')}>
           {/* spacers + stem */}
-          <line x1={g.headTop.x} y1={g.headTop.y} x2={g.headTop.x - 2} y2={g.headTop.y - 8} stroke={outline} strokeWidth={g.tube + 2} />
-          <line
-            x1={g.headTop.x - 2}
-            y1={g.headTop.y - 6}
-            x2={stemEnd.x}
-            y2={stemEnd.y}
-            stroke={bars.barType === 'aero-integrated' ? '#151a21' : '#2a313a'}
-            strokeWidth={bars.barType === 'aero-integrated' ? 13 : 9}
-            strokeLinecap="round"
-          />
+          <ShadedTube uid={uid} name="spacer" a={g.headTop} b={{ x: g.headTop.x - 2, y: g.headTop.y - 9 }} wa={g.tube * 1.25 + 2} wb={g.tube * 1.2 + 2} cw={CARBON} tube="head" xAt={() => 0} caps={false} />
+          <ShadedTube uid={uid} name="stem" a={{ x: g.headTop.x - 2, y: g.headTop.y - 6 }} b={stemEnd} wa={bars.barType === 'aero-integrated' ? 15 : 11} wb={bars.barType === 'aero-integrated' ? 12 : 9} cw={CARBON} tube="top" xAt={() => 0} />
           {hasDrops && (
             <>
               {bars.barType === 'flared-gravel' && (

@@ -117,6 +117,8 @@ export interface WheelLook {
   rim: 'carbon-matte' | 'carbon-gloss' | 'alloy-black' | 'alloy-silver';
   /** Text printed on the rim (usually the brand or model). */
   decalText: string;
+  /** Smaller model name printed after the logo (e.g. "SES 4.5"). */
+  decalSub?: string;
   decalColor: string;
   /** Bold = big, high-contrast logos; subtle = small or tonal logos. */
   decalStyle: 'bold' | 'subtle';

@@ -123,13 +123,6 @@ export function drawBackdrop(ctx: CanvasRenderingContext2D, w: number, h: number
       ridge(ctx, w, rt, rt * 0.62, rt * 0.3, '#8a4f6a', 7, 9);
       ridge(ctx, w, rt, rt * 0.8, rt * 0.32, '#5c3554', 11, 12);
       ridge(ctx, w, rt, rt * 0.97, rt * 0.28, '#35213a', 23, 16);
-      // A switchback road climbing the far slope
-      ctx.strokeStyle = 'rgba(255,215,170,0.35)';
-      ctx.lineWidth = Math.max(1, h * 0.004);
-      ctx.beginPath();
-      ctx.moveTo(w * 0.18, rt * 0.95);
-      for (let i = 0; i < 5; i++) ctx.lineTo(i % 2 ? w * 0.18 : w * 0.34, rt * (0.92 - i * 0.07));
-      ctx.stroke();
       ctx.fillStyle = '#35213a';
       ctx.fillRect(0, rt - 1, w, h - rt + 1);
       road(ctx, w, h, rt, '#35323a', 'rgba(255,255,255,0.55)', '#b9a28c');
